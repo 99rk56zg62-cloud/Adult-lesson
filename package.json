@@ -1,0 +1,10 @@
+{
+  "name": "lido",
+  "private": true,
+  "scripts": {
+    "dev:api": "npm run dev --prefix server",
+    "dev:app": "npm run start --prefix mobile",
+    "test": "npm test --prefix server",
+    "typecheck": "npm run typecheck --prefix server && npm run typecheck --prefix mobile"
+  }
+}

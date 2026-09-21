@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.local
+server/data/
+.DS_Store
+npm-debug.log*
+*.tsbuildinfo
