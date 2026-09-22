@@ -1,10 +1,21 @@
 # Lido
 
-Adult swimming lesson bookings for iOS, Android, and web. Customers browse capacity-limited sessions, pay when they book, rearrange until 24 hours before the start, and add the lesson to Google Calendar.
+Adult swimming lesson bookings for iOS, Android, and web. Customers pick a date on a calendar, choose an open time, pay when they book, rearrange until 24 hours before the start, and add the lesson to Google Calendar.
 
-The mobile client is Expo (React Native). The API is a small Node server with SQLite. Business rules are enforced on the server.
+The mobile client is Expo (React Native). The API is a small Node server with SQLite. Business rules are enforced on the server. Pool staff manage weekly availability in a simple admin web page.
 
-## Rules
+## How booking works now
+
+1. Open **Schedule**. You see a month calendar of dates in the next **6 weeks** (UK / Europe/London).
+2. Dates with open places are highlighted. Full or empty dates are greyed out and cannot be selected.
+3. Tap a date to see the **times** that day — lesson type, pool, teacher, price, and spots left. Full times stay visible but cannot be booked.
+4. Tap a time, confirm the details, and pay (Stripe Checkout, or the local test-payment page when no Stripe key is set).
+5. The lesson appears under **Lessons**. You can rearrange it until **24 hours** before the start. Inside that window the control is locked.
+6. Use **Add to Google Calendar** on a booking, or connect Google on Account so paid and rearranged lessons sync automatically.
+
+Staff set the weekly classes (and one-off sessions) in the **admin area**. Those rules are what appear on the customer calendar.
+
+## Rules (unchanged)
 
 - A session can be booked only if it starts in the future and its calendar day in `Europe/London` is within **6 weeks of today**.
 - A confirmed lesson can be **rearranged until 24 hours before it starts**. At that instant it is still allowed; one millisecond later it is not. Rearranging does not charge the card again.
@@ -14,8 +25,8 @@ The mobile client is Expo (React Native). The API is a small Node server with SQ
 ## Project layout
 
 ```
-server/     Express API — slots, bookings, Stripe, Google Calendar
-mobile/     Expo app — schedule, payment, lessons, account
+server/     Express API — availability, slots, bookings, Stripe, Google Calendar, /admin
+mobile/     Expo app — calendar schedule, payment, lessons, account
 ```
 
 ## Run locally
@@ -52,21 +63,35 @@ The sign-in screen shows **Use the demo swimmer** while `EXPOSE_DEMO_LOGIN` is o
 | --- | --- |
 | API health | http://localhost:4000/api/health |
 | Expo web | http://localhost:8081 |
+| Staff admin | http://localhost:4000/admin |
 | Google redirect URI | http://localhost:4000/api/calendar/callback |
 
 `API_PUBLIC_URL` must be the URL the phone or browser can open. Stripe sends the *user's browser* there after payment; it does not call that URL itself. On a physical device, set both `API_PUBLIC_URL` and `EXPO_PUBLIC_API_URL` to your computer's LAN address, for example `http://192.168.1.20:4000`. Android emulator: `http://10.0.2.2:4000`.
 
 Restart Expo after changing `mobile/.env`.
 
+## Admin area
+
+Open http://localhost:4000/admin and sign in with the **ADMIN_TOKEN**.
+
+Outside production, if `ADMIN_TOKEN` is left blank the API uses `lido-dev-admin` (also set in `.env.example`). In any shared or production environment, set a long random token and keep it private.
+
+What you can do there:
+
+1. **Weekly availability** — add or edit a recurring class (day of week, start time, length, places, price, pool, lesson type, teacher). Turn a class off to hide future dates from customers without deleting paid bookings.
+2. **Upcoming sessions** — see the materialised calendar dates, add a one-off session, or cancel a single date (that day goes grey for customers).
+
+The customer app only shows enabled, non-cancelled sessions with open capacity as bookable. The JSON admin API (`x-admin-token` header) is still available for automation: `/api/admin/rules` and `/api/admin/slots`.
+
+After changing availability, pull to refresh the Schedule calendar in the app.
+
 ## What to click through
 
-1. **Schedule.** Sessions for the next 6 weeks, including one full class and at least one that starts within 24 hours. Times are UK.
-2. **Book.** Open a session and pay.
-   - Mock mode: a Lido test-payment page, then back to the lesson.
-   - Stripe test mode: Checkout. Card `4242 4242 4242 4242`, any future expiry, any CVC, any postcode.
-3. **Lessons.** The booking shows a reference like `LD-XXXXXX`. Pending checkouts can be finished from here until the hold ends.
-4. **Rearrange.** More than 24 hours before the start, pick another open session. You are not charged again. Inside 24 hours the control is disabled, and the API returns `RESCHEDULE_WINDOW_CLOSED` if anything bypasses the app.
-5. **Calendar.** Each confirmed lesson has an Add to Google Calendar link (no OAuth). Connect Google on Account to create and update events automatically.
+1. **Schedule.** Month calendar → pick an open date → choose a time.
+2. **Book.** Pay on the mock page (or Stripe with `4242 4242 4242 4242`).
+3. **Lessons.** Confirm the `LD-` reference. Try rearrange while allowed; open a soon session to see the 24-hour lock.
+4. **Admin.** At `/admin`, add a Friday class or cancel one session and confirm it updates the customer calendar.
+5. **Google Calendar.** Add-to-calendar link works without OAuth; connect on Account when keys are set.
 
 In Expo Go, the in-app browser sometimes does not bounce straight back into the app after payment. The API confirms the booking when Stripe (or the test page) hits the return URL. Switch back to Lido and pull to refresh My lessons.
 
@@ -86,7 +111,7 @@ Copy `server/.env.example`. Never commit real keys. Placeholders in the example 
 | `STRIPE_WEBHOOK_SECRET` | Webhook signing secret. Bookings still confirm from the browser return URL without it. |
 | `GOOGLE_CLIENT_ID` | OAuth web client id. |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret. |
-| `ADMIN_TOKEN` | Unlocks `POST /api/admin/slots` for one-off sessions. |
+| `ADMIN_TOKEN` | Protects `/admin` and the admin API. Default outside production: `lido-dev-admin`. |
 | `SEED_DEMO_USER` | Seed `swimmer@example.com`. Default on outside production. |
 | `EXPOSE_DEMO_LOGIN` | Include the demo password in `GET /api/config`. Default off in production. |
 | `EXPO_PUBLIC_API_URL` | API URL baked into the Expo app. Default `http://localhost:4000`. |
@@ -133,9 +158,9 @@ Connecting once creates an event when a payment is confirmed and updates it when
 
 The refresh token is stored in SQLite for local development. Encrypt it before any real deployment.
 
-## Schedule
+## Default weekly schedule
 
-On startup the API materialises eight weeks of recurring sessions (only the next six are bookable):
+On startup the API seeds these weekly classes (unless they already exist) and fills eight weeks of dates (customers can book six):
 
 | When | Session | Where | Places | Price |
 | --- | --- | --- | --- | --- |
@@ -148,7 +173,7 @@ On startup the API materialises eight weeks of recurring sessions (only the next
 
 It also adds a drop-in about 12 hours ahead (so the 24-hour lock is easy to see) and a one-place workshop that is already full.
 
-`POST /api/admin/slots` with header `x-admin-token` creates a one-off session, including one beyond six weeks if you want to see the API reject it.
+Edit or extend this list from `/admin` — you do not need to touch the seed file for day-to-day changes.
 
 ## Tests
 
@@ -157,13 +182,13 @@ npm test
 npm run typecheck
 ```
 
-The API tests cover the 6-week boundary in Europe/London, the 24-hour rearrange cutoff (including the daylight-saving change), capacity holds, payment required before confirm, Stripe webhook confirmation, and Google Calendar connect/sync. They use an in-memory database and do not call Stripe or Google.
+The API tests cover the 6-week boundary in Europe/London, the 24-hour rearrange cutoff (including the daylight-saving change), capacity holds, payment required before confirm, Stripe webhook confirmation, Google Calendar connect/sync, and admin weekly rules feeding the customer calendar. They use an in-memory database and do not call Stripe or Google.
 
 ## Production notes
 
 This is a local MVP. Before exposing it:
 
-- Set `NODE_ENV=production`, a long `JWT_SECRET`, and `EXPOSE_DEMO_LOGIN=false`.
+- Set `NODE_ENV=production`, a long `JWT_SECRET`, a strong `ADMIN_TOKEN`, and `EXPOSE_DEMO_LOGIN=false`.
 - Use `PAYMENTS_MODE=stripe` with live keys only when you intend to charge people, and set `STRIPE_WEBHOOK_SECRET`.
 - Serve the API over HTTPS and point `API_PUBLIC_URL` at that origin.
 - Replace the SQLite file with a managed database if more than one API process will run.

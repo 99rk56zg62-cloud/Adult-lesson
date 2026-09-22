@@ -111,6 +111,14 @@ export default function AccountScreen() {
             </>
           ) : null}
         </View>
+        <View style={styles.card}>
+          <Text style={styles.kicker}>Staff admin</Text>
+          <Text style={styles.body}>
+            Pool managers set weekly availability and one-off sessions in the admin area
+            {config?.adminUrl ? ` at ${config.adminUrl}` : ""}. Sign in there with the ADMIN_TOKEN from the API environment
+            (default outside production: lido-dev-admin).
+          </Text>
+        </View>
         <Button
           label="Sign out"
           variant="secondary"

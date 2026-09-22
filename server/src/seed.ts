@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { DateTime } from "luxon";
 import { hashPassword } from "./auth.js";
+import { materializeEnabledRules, upsertRule } from "./availability.js";
 import { getRow } from "./db.js";
 import { toUtcIso, ZONE } from "./time.js";
 
@@ -10,22 +11,6 @@ export const DEMO_PASSWORD = "Harbour-swim-1";
 export const DEMO_NAME = "Demo Swimmer";
 
 const HOLD_USER_ID = "user_capacity_hold";
-
-type Rule = {
-  id: string;
-  weekday: number;
-  hour: number;
-  minute: number;
-  durationMinutes: number;
-  capacity: number;
-  pricePence: number;
-  title: string;
-  level: string;
-  blurb: string;
-  location: string;
-  address: string;
-  instructor: string;
-};
 
 const PLACES = {
   riverside: { location: "Riverside Lido", address: "Pool Lane, Bristol" },
@@ -43,36 +28,97 @@ const BLURBS = {
   technique: "Drill-led workshop for adults who already swim regularly and want easier, smoother laps.",
 };
 
-const WEEKLY_RULES: Rule[] = [
-  rule("weekly-mon-1900", 1, 19, 0, 45, 8, 2800, "Adult beginners", "Beginners", BLURBS.beginners, "riverside", "Sam Okonkwo"),
-  rule("weekly-tue-1830", 2, 18, 30, 45, 8, 2800, "Improvers", "Improvers", BLURBS.improvers, "riverside", "Priya Shah"),
-  rule("weekly-wed-1215", 3, 12, 15, 45, 6, 2400, "Lunchtime lane skills", "Improvers", BLURBS.lunchtime, "harbour", "Helen Ward"),
-  rule("weekly-thu-1900", 4, 19, 0, 45, 10, 2800, "Adult beginners", "Beginners", BLURBS.beginners, "harbour", "Sam Okonkwo"),
-  rule("weekly-sat-0900", 6, 9, 0, 45, 8, 3000, "Water confidence", "Confidence", BLURBS.confidence, "riverside", "Helen Ward"),
-  rule("weekly-sun-1000", 7, 10, 0, 60, 6, 3200, "Technique workshop", "Technique", BLURBS.technique, "harbour", "Priya Shah"),
-];
-
-function rule(
-  id: string,
-  weekday: number,
-  hour: number,
-  minute: number,
-  durationMinutes: number,
-  capacity: number,
-  pricePence: number,
-  title: string,
-  level: string,
-  blurb: string,
-  place: keyof typeof PLACES,
-  instructor: string,
-): Rule {
-  return { id, weekday, hour, minute, durationMinutes, capacity, pricePence, title, level, blurb, instructor, ...PLACES[place] };
-}
+const DEFAULT_RULES = [
+  {
+    id: "weekly-mon-1900",
+    weekday: 1,
+    hour: 19,
+    minute: 0,
+    durationMinutes: 45,
+    capacity: 8,
+    pricePence: 2800,
+    title: "Adult beginners",
+    level: "Beginners",
+    blurb: BLURBS.beginners,
+    ...PLACES.riverside,
+    instructor: "Sam Okonkwo",
+  },
+  {
+    id: "weekly-tue-1830",
+    weekday: 2,
+    hour: 18,
+    minute: 30,
+    durationMinutes: 45,
+    capacity: 8,
+    pricePence: 2800,
+    title: "Improvers",
+    level: "Improvers",
+    blurb: BLURBS.improvers,
+    ...PLACES.riverside,
+    instructor: "Priya Shah",
+  },
+  {
+    id: "weekly-wed-1215",
+    weekday: 3,
+    hour: 12,
+    minute: 15,
+    durationMinutes: 45,
+    capacity: 6,
+    pricePence: 2400,
+    title: "Lunchtime lane skills",
+    level: "Improvers",
+    blurb: BLURBS.lunchtime,
+    ...PLACES.harbour,
+    instructor: "Helen Ward",
+  },
+  {
+    id: "weekly-thu-1900",
+    weekday: 4,
+    hour: 19,
+    minute: 0,
+    durationMinutes: 45,
+    capacity: 10,
+    pricePence: 2800,
+    title: "Adult beginners",
+    level: "Beginners",
+    blurb: BLURBS.beginners,
+    ...PLACES.harbour,
+    instructor: "Sam Okonkwo",
+  },
+  {
+    id: "weekly-sat-0900",
+    weekday: 6,
+    hour: 9,
+    minute: 0,
+    durationMinutes: 45,
+    capacity: 8,
+    pricePence: 3000,
+    title: "Water confidence",
+    level: "Confidence",
+    blurb: BLURBS.confidence,
+    ...PLACES.riverside,
+    instructor: "Helen Ward",
+  },
+  {
+    id: "weekly-sun-1000",
+    weekday: 7,
+    hour: 10,
+    minute: 0,
+    durationMinutes: 60,
+    capacity: 6,
+    pricePence: 3200,
+    title: "Technique workshop",
+    level: "Technique",
+    blurb: BLURBS.technique,
+    ...PLACES.harbour,
+    instructor: "Priya Shah",
+  },
+] as const;
 
 const insertSlot = `
   INSERT OR IGNORE INTO slots (
-    id, rule_id, starts_at, ends_at, capacity, price_pence, title, level, blurb, location, address, instructor
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    id, rule_id, starts_at, ends_at, capacity, price_pence, title, level, blurb, location, address, instructor, enabled, cancelled
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)
 `;
 
 export function seedDatabase(
@@ -82,7 +128,8 @@ export function seedDatabase(
 ) {
   const now = clock();
   const nowIso = toUtcIso(now);
-  materializeWeekly(db, now);
+  seedDefaultRules(db, now);
+  materializeEnabledRules(db, now);
   ensureSoonSlot(db, now, nowIso);
   ensureFullSlot(db, now, nowIso, options.bcryptRounds);
   if (options.demo) {
@@ -90,30 +137,30 @@ export function seedDatabase(
   }
 }
 
-function materializeWeekly(db: DatabaseSync, now: DateTime) {
-  const startDay = now.setZone(ZONE).startOf("day");
-  const endDay = startDay.plus({ weeks: 8 });
-  const insert = db.prepare(insertSlot);
-  for (let day = startDay; day <= endDay; day = day.plus({ days: 1 })) {
-    for (const item of WEEKLY_RULES) {
-      if (day.weekday !== item.weekday) continue;
-      const starts = day.set({ hour: item.hour, minute: item.minute, second: 0, millisecond: 0 });
-      if (starts.toMillis() <= now.toMillis()) continue;
-      insert.run(
-        randomUUID(),
-        item.id,
-        toUtcIso(starts),
-        toUtcIso(starts.plus({ minutes: item.durationMinutes })),
-        item.capacity,
-        item.pricePence,
-        item.title,
-        item.level,
-        item.blurb,
-        item.location,
-        item.address,
-        item.instructor,
-      );
-    }
+function seedDefaultRules(db: DatabaseSync, now: DateTime) {
+  for (const item of DEFAULT_RULES) {
+    const existing = getRow<{ id: string }>(db, `SELECT id FROM availability_rules WHERE id = ?`, item.id);
+    if (existing) continue;
+    upsertRule(
+      db,
+      item.id,
+      {
+        weekday: item.weekday,
+        hour: item.hour,
+        minute: item.minute,
+        durationMinutes: item.durationMinutes,
+        capacity: item.capacity,
+        pricePence: item.pricePence,
+        title: item.title,
+        level: item.level,
+        blurb: item.blurb,
+        location: item.location,
+        address: item.address,
+        instructor: item.instructor,
+        enabled: true,
+      },
+      now,
+    );
   }
 }
 
@@ -125,7 +172,7 @@ function ensureSoonSlot(db: DatabaseSync, now: DateTime, nowIso: string) {
   );
   if (existing) return;
   const starts = now.setZone(ZONE).plus({ hours: 12 }).startOf("hour");
-  const template = WEEKLY_RULES[0]!;
+  const template = DEFAULT_RULES[0]!;
   db.prepare(insertSlot).run(
     randomUUID(),
     "soon-dropin",
@@ -194,6 +241,8 @@ function ensureDemoBooking(db: DatabaseSync, now: DateTime, nowIso: string, roun
     `SELECT s.id, s.price_pence FROM slots s
      WHERE s.rule_id LIKE 'weekly-%'
        AND s.level = 'Beginners'
+       AND s.enabled = 1
+       AND s.cancelled = 0
        AND s.starts_at > ?
        AND s.starts_at < ?
        AND (

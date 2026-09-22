@@ -64,7 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     stripeWebhookSecret: clean(env.STRIPE_WEBHOOK_SECRET),
     googleClientId: clean(env.GOOGLE_CLIENT_ID),
     googleClientSecret: clean(env.GOOGLE_CLIENT_SECRET),
-    adminToken: clean(env.ADMIN_TOKEN),
+    adminToken: clean(env.ADMIN_TOKEN) ?? (nodeEnv === "production" ? null : "lido-dev-admin"),
     seedDemoUser,
     exposeDemoLogin: flag(env.EXPOSE_DEMO_LOGIN, nodeEnv !== "production" && seedDemoUser),
     nodeEnv,

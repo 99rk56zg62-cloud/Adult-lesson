@@ -47,6 +47,9 @@ app.listen(config.port, () => {
   console.log(`Public URL ${config.apiPublicUrl}`);
   console.log(`Payments: ${config.paymentsMode}`);
   console.log(`Google Calendar: ${calendar.configured ? "configured" : "not configured"}`);
+  if (config.adminToken) {
+    console.log(`Admin: ${config.apiPublicUrl}/admin (token configured)`);
+  }
   if (config.seedDemoUser) {
     console.log(`Demo swimmer: ${DEMO_EMAIL}`);
   }

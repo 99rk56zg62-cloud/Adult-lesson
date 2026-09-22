@@ -13,7 +13,18 @@ export type PublicConfig = {
   holdMinutes: number;
   paymentsMode: "stripe" | "mock";
   calendarConfigured: boolean;
+  adminUrl: string | null;
   demoLogin: { email: string; password: string; name: string } | null;
+};
+
+export type DayAvailability = {
+  dateKey: string;
+  dayLabel: string;
+  weekdayShort: string;
+  dayOfMonth: number;
+  openCount: number;
+  totalCount: number;
+  selectable: boolean;
 };
 
 export type Slot = {
@@ -28,6 +39,7 @@ export type Slot = {
   endsAt: string;
   dayLabel: string;
   timeLabel: string;
+  startTimeLabel: string;
   dateKey: string;
   weekKey: string;
   weekLabel: string;
@@ -40,6 +52,9 @@ export type Slot = {
   bookable: boolean;
   unavailableReason: string | null;
   soon: boolean;
+  enabled: boolean;
+  cancelled: boolean;
+  ruleId: string | null;
 };
 
 export type Booking = {

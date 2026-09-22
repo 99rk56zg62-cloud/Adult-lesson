@@ -524,4 +524,71 @@ describe("lido api", { concurrency: 1 }, () => {
       await ctx.close();
     }
   });
+
+  test("admin weekly rules feed the customer calendar and cancelled sessions stay hidden", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      const listed = await api(ctx.base, "/api/slots", { token });
+      assert.equal(listed.status, 200);
+      assert.ok(listed.json.days.length > 0);
+      assert.ok(listed.json.days.every((day: { selectable: boolean; openCount: number }) => !day.selectable || day.openCount > 0));
+      assert.ok(listed.json.slots.every((slot: SlotDto) => slot.bookable || slot.spotsLeft === 0));
+
+      const created = await api(ctx.base, "/api/admin/rules", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: {
+          weekday: 5,
+          hour: 11,
+          minute: 0,
+          durationMinutes: 45,
+          capacity: 4,
+          pricePence: 2600,
+          title: "Friday gentle lane",
+          level: "Confidence",
+          location: "Harbour Pool",
+          address: "Wharf Road, Bristol",
+          instructor: "Helen Ward",
+          blurb: "A calm Friday session for adults building water confidence.",
+        },
+      });
+      assert.equal(created.status, 201, created.text);
+      assert.equal(created.json.rule.weekdayLabel, "Friday");
+
+      const after = await listSlots(ctx, token);
+      const friday = after.filter((slot) => slot.title === "Friday gentle lane");
+      assert.ok(friday.length > 0);
+      assert.ok(friday.every((slot) => slot.dateKey && slot.bookable));
+
+      const cancel = await api(ctx.base, `/api/admin/slots/${friday[0]!.id}`, {
+        method: "PATCH",
+        headers: { "x-admin-token": "test-admin" },
+        body: { cancelled: true },
+      });
+      assert.equal(cancel.status, 200, cancel.text);
+      const hidden = await listSlots(ctx, token);
+      assert.equal(hidden.some((slot) => slot.id === friday[0]!.id), false);
+
+      const disabled = await api(ctx.base, `/api/admin/rules/${created.json.rule.id}/enabled`, {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { enabled: false },
+      });
+      assert.equal(disabled.status, 200);
+      const withoutFriday = await listSlots(ctx, token);
+      assert.equal(withoutFriday.some((slot) => slot.title === "Friday gentle lane"), false);
+
+      const form = await fetch(`${ctx.base}/admin/login`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "token=test-admin",
+        redirect: "manual",
+      });
+      assert.equal(form.status, 303);
+      assert.match(form.headers.get("set-cookie") ?? "", /lido_admin=/);
+    } finally {
+      await ctx.close();
+    }
+  });
 });

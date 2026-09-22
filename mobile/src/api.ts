@@ -73,6 +73,7 @@ export const api = {
   slots: () =>
     request<{
       slots: Slot[];
+      days: import("@/types").DayAvailability[];
       windowEndsLabel: string;
       maxAdvanceWeeks: number;
       rescheduleCutoffHours: number;

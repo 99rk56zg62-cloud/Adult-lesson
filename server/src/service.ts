@@ -1,18 +1,36 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { DateTime } from "luxon";
+import {
+  disableFutureRuleSlots,
+  materializeEnabledRules,
+  materializeRule,
+  upsertRule,
+  type RuleInput,
+} from "./availability.js";
 import { hashPassword, readOAuthState, signAccessToken, signOAuthState, verifyPassword } from "./auth.js";
 import type { CalendarGateway } from "./calendar.js";
 import type { AppConfig } from "./config.js";
 import { getRow, getRows, isUniqueError, withTransaction } from "./db.js";
 import { AppError } from "./errors.js";
-import { presentBooking, presentSlot } from "./format.js";
+import { presentBooking, presentRule, presentSlot } from "./format.js";
 import type { PaymentProvider } from "./payments.js";
 import { isAllowedReturnUrl } from "./return-url.js";
 import { getBookingBlock, getRescheduleBlock, HOLD_MS, lastBookableDay, MAX_ADVANCE_WEEKS } from "./rules.js";
 import { DEMO_EMAIL, DEMO_NAME, DEMO_PASSWORD } from "./seed.js";
 import { fromIso, parseInstant, toUtcIso, ZONE } from "./time.js";
-import type { BookingDto, BookingRow, PublicConfig, SlotDto, SlotRow, UserDto, UserRow } from "./types.js";
+import type {
+  AvailabilityRuleDto,
+  AvailabilityRuleRow,
+  BookingDto,
+  BookingRow,
+  DayAvailability,
+  PublicConfig,
+  SlotDto,
+  SlotRow,
+  UserDto,
+  UserRow,
+} from "./types.js";
 
 export type ServiceDeps = {
   db: DatabaseSync;
@@ -64,6 +82,64 @@ export function createService(deps: ServiceDeps) {
     const slot = getRow<SlotRow>(db, `SELECT * FROM slots WHERE id = ?`, slotId);
     if (!slot) throw new AppError(404, "NOT_FOUND", "That session doesn't exist.");
     return slot;
+  }
+
+  function requireRule(ruleId: string): AvailabilityRuleRow {
+    const rule = getRow<AvailabilityRuleRow>(db, `SELECT * FROM availability_rules WHERE id = ?`, ruleId);
+    if (!rule) throw new AppError(404, "NOT_FOUND", "That weekly availability doesn't exist.");
+    return rule;
+  }
+
+  function assertSlotBookable(slot: SlotRow) {
+    if (Number(slot.enabled) === 0 || Number(slot.cancelled) !== 0) {
+      throw new AppError(409, "SLOT_UNAVAILABLE", "This session isn't available.");
+    }
+  }
+
+  function listVisibleSlots(now: DateTime): SlotDto[] {
+    expireStale();
+    materializeEnabledRules(db, now);
+    const occupied = occupiedMap();
+    const rows = getRows<SlotRow>(
+      db,
+      `SELECT * FROM slots
+       WHERE starts_at > ?
+         AND enabled = 1
+         AND cancelled = 0
+       ORDER BY starts_at`,
+      toUtcIso(now),
+    );
+    return rows
+      .map((slot) => presentSlot(slot, occupied.get(slot.id) ?? 0, now))
+      .filter((slot) => getBookingBlock(fromIso(slot.startsAt), now).ok);
+  }
+
+  function buildDays(slots: SlotDto[], now: DateTime): DayAvailability[] {
+    const ends = lastBookableDay(now);
+    const start = now.setZone(ZONE).startOf("day");
+    const byDate = new Map<string, SlotDto[]>();
+    for (const slot of slots) {
+      const list = byDate.get(slot.dateKey) ?? [];
+      list.push(slot);
+      byDate.set(slot.dateKey, list);
+    }
+    const days: DayAvailability[] = [];
+    for (let day = start; day <= ends; day = day.plus({ days: 1 })) {
+      const dateKey = day.toFormat("yyyy-MM-dd");
+      const daySlots = byDate.get(dateKey) ?? [];
+      if (daySlots.length === 0) continue;
+      const openCount = daySlots.filter((slot) => slot.bookable).length;
+      days.push({
+        dateKey,
+        dayLabel: day.toFormat("cccc d LLLL"),
+        weekdayShort: day.toFormat("ccc"),
+        dayOfMonth: day.day,
+        openCount,
+        totalCount: daySlots.length,
+        selectable: openCount > 0,
+      });
+    }
+    return days;
   }
 
   function requireOwned(userId: string, bookingId: string): BookingRow {
@@ -215,13 +291,8 @@ export function createService(deps: ServiceDeps) {
 
     listSlots(userId: string) {
       requireUser(userId);
-      expireStale();
       const now = clock();
-      const occupied = occupiedMap();
-      const rows = getRows<SlotRow>(db, `SELECT * FROM slots WHERE starts_at > ? ORDER BY starts_at`, nowIso());
-      const slots = rows
-        .map((slot) => presentSlot(slot, occupied.get(slot.id) ?? 0, now))
-        .filter((slot) => getBookingBlock(fromIso(slot.startsAt), now).ok);
+      const slots = listVisibleSlots(now);
       const ends = lastBookableDay(now);
       return {
         timezone: ZONE,
@@ -229,6 +300,7 @@ export function createService(deps: ServiceDeps) {
         rescheduleCutoffHours: 24,
         windowEndsOn: ends.toFormat("yyyy-MM-dd"),
         windowEndsLabel: ends.toFormat("d LLLL yyyy"),
+        days: buildDays(slots, now),
         slots,
       };
     },
@@ -245,6 +317,7 @@ export function createService(deps: ServiceDeps) {
       assertReturnUrl(input.returnUrl);
       expireStale();
       const slot = requireSlot(input.slotId);
+      assertSlotBookable(slot);
       const block = getBookingBlock(fromIso(slot.starts_at), clock());
       if (!block.ok) throw new AppError(400, block.code, block.message);
 
@@ -381,6 +454,7 @@ export function createService(deps: ServiceDeps) {
       if (!decision.ok) throw new AppError(409, decision.code, decision.message);
       if (slotId === current.id) throw new AppError(400, "VALIDATION", "Choose a different session.");
       const next = requireSlot(slotId);
+      assertSlotBookable(next);
       const block = getBookingBlock(fromIso(next.starts_at), clock());
       if (!block.ok) throw new AppError(400, block.code, block.message);
 
@@ -394,6 +468,7 @@ export function createService(deps: ServiceDeps) {
         const decisionAgain = getRescheduleBlock(fromIso(currentAgain.starts_at), clock());
         if (!decisionAgain.ok) throw new AppError(409, decisionAgain.code, decisionAgain.message);
         const nextAgain = requireSlot(slotId);
+        assertSlotBookable(nextAgain);
         const nextBlock = getBookingBlock(fromIso(nextAgain.starts_at), clock());
         if (!nextBlock.ok) throw new AppError(400, nextBlock.code, nextBlock.message);
         if (countOccupied(nextAgain.id, again.id) >= nextAgain.capacity) {
@@ -541,11 +616,11 @@ export function createService(deps: ServiceDeps) {
       const id = randomUUID();
       db.prepare(
         `INSERT INTO slots (
-          id, rule_id, starts_at, ends_at, capacity, price_pence, title, level, blurb, location, address, instructor
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, rule_id, starts_at, ends_at, capacity, price_pence, title, level, blurb, location, address, instructor, enabled, cancelled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
       ).run(
         id,
-        `admin-${id}`,
+        `oneoff-${id}`,
         toUtcIso(starts),
         toUtcIso(starts.plus({ minutes: input.durationMinutes })),
         input.capacity,
@@ -560,15 +635,99 @@ export function createService(deps: ServiceDeps) {
       return presentSlot(requireSlot(id), 0, clock());
     },
 
+    updateAdminSlot(
+      slotId: string,
+      input: {
+        capacity?: number;
+        pricePence?: number;
+        title?: string;
+        level?: string;
+        location?: string;
+        address?: string;
+        instructor?: string;
+        blurb?: string;
+        cancelled?: boolean;
+      },
+    ): SlotDto {
+      const slot = requireSlot(slotId);
+      db.prepare(
+        `UPDATE slots SET
+          capacity = ?, price_pence = ?, title = ?, level = ?, location = ?, address = ?, instructor = ?, blurb = ?, cancelled = ?
+         WHERE id = ?`,
+      ).run(
+        input.capacity ?? slot.capacity,
+        input.pricePence ?? slot.price_pence,
+        input.title ?? slot.title,
+        input.level ?? slot.level,
+        input.location ?? slot.location,
+        input.address ?? slot.address,
+        input.instructor ?? slot.instructor,
+        input.blurb ?? slot.blurb,
+        input.cancelled === undefined ? slot.cancelled : input.cancelled ? 1 : 0,
+        slotId,
+      );
+      return presentSlot(requireSlot(slotId), countOccupied(slotId, ""), clock());
+    },
+
     listAdminSlots(): SlotDto[] {
       expireStale();
+      materializeEnabledRules(db, clock());
       const occupied = occupiedMap();
       const now = clock();
       return getRows<SlotRow>(db, `SELECT * FROM slots ORDER BY starts_at`).map((slot) =>
         presentSlot(slot, occupied.get(slot.id) ?? 0, now),
       );
     },
+
+    listAdminRules(): AvailabilityRuleDto[] {
+      materializeEnabledRules(db, clock());
+      return getRows<AvailabilityRuleRow>(db, `SELECT * FROM availability_rules ORDER BY weekday, hour, minute`).map(
+        presentRule,
+      );
+    },
+
+    createAdminRule(input: RuleInput): AvailabilityRuleDto {
+      validateRuleInput(input);
+      const rule = upsertRule(db, randomUUID(), { ...input, enabled: input.enabled !== false }, clock());
+      return presentRule(rule);
+    },
+
+    updateAdminRule(ruleId: string, input: RuleInput): AvailabilityRuleDto {
+      requireRule(ruleId);
+      validateRuleInput(input);
+      const rule = upsertRule(db, ruleId, input, clock());
+      return presentRule(rule);
+    },
+
+    setAdminRuleEnabled(ruleId: string, enabled: boolean): AvailabilityRuleDto {
+      const rule = requireRule(ruleId);
+      const now = clock();
+      db.prepare(`UPDATE availability_rules SET enabled = ?, updated_at = ? WHERE id = ?`).run(
+        enabled ? 1 : 0,
+        toUtcIso(now),
+        ruleId,
+      );
+      if (enabled) {
+        materializeRule(db, requireRule(ruleId), now);
+        db.prepare(`UPDATE slots SET enabled = 1 WHERE rule_id = ? AND starts_at > ? AND cancelled = 0`).run(
+          ruleId,
+          toUtcIso(now),
+        );
+      } else {
+        disableFutureRuleSlots(db, rule.id, now);
+      }
+      return presentRule(requireRule(ruleId));
+    },
   };
+}
+
+function validateRuleInput(input: RuleInput) {
+  if (input.weekday < 1 || input.weekday > 7) {
+    throw new AppError(400, "VALIDATION", "Choose a day of the week.");
+  }
+  if (input.hour < 0 || input.hour > 23 || input.minute < 0 || input.minute > 59) {
+    throw new AppError(400, "VALIDATION", "Enter a valid start time.");
+  }
 }
 
 type MockPaymentsPeek = {

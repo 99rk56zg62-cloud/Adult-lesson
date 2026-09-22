@@ -1,7 +1,8 @@
 import { DateTime } from "luxon";
+import { WEEKDAY_LABELS, clockMinutesLabel } from "./availability.js";
 import { getBookingBlock, getRescheduleBlock, spotsRemaining, RESCHEDULE_CUTOFF_MS } from "./rules.js";
 import { fromIso, ZONE } from "./time.js";
-import type { BookingDto, BookingRow, SlotDto, SlotRow } from "./types.js";
+import type { AvailabilityRuleDto, AvailabilityRuleRow, BookingDto, BookingRow, SlotDto, SlotRow } from "./types.js";
 
 export function formatGBP(pence: number): string {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
@@ -56,8 +57,13 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
   const week = weekParts(startsAt);
   const spotsLeft = spotsRemaining(slot.capacity, occupied);
   const window = getBookingBlock(startsAt, now);
+  const enabled = Number(slot.enabled) !== 0;
+  const cancelled = Number(slot.cancelled) !== 0;
   let unavailableReason = window.ok ? null : window.message;
-  if (window.ok && spotsLeft <= 0) {
+  if (!unavailableReason && (!enabled || cancelled)) {
+    unavailableReason = "This session isn't available.";
+  }
+  if (!unavailableReason && spotsLeft <= 0) {
     unavailableReason = "This session is full.";
   }
   const dayLabel =
@@ -77,6 +83,7 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
     endsAt: slot.ends_at,
     dayLabel,
     timeLabel: `${clockLabel(local)}–${clockLabel(endsAt)}`,
+    startTimeLabel: clockLabel(local),
     dateKey: local.toFormat("yyyy-MM-dd"),
     weekKey: week.weekKey,
     weekLabel: week.weekLabel,
@@ -89,6 +96,33 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
     bookable: unavailableReason === null,
     unavailableReason,
     soon: startsAt.toMillis() > now.toMillis() && startsAt.toMillis() - now.toMillis() < RESCHEDULE_CUTOFF_MS,
+    enabled,
+    cancelled,
+    ruleId: slot.rule_id,
+  };
+}
+
+export function presentRule(rule: AvailabilityRuleRow): AvailabilityRuleDto {
+  return {
+    id: rule.id,
+    weekday: rule.weekday,
+    weekdayLabel: WEEKDAY_LABELS[rule.weekday] ?? `Day ${rule.weekday}`,
+    hour: rule.hour,
+    minute: rule.minute,
+    timeLabel: clockMinutesLabel(rule.hour, rule.minute),
+    durationMinutes: rule.duration_minutes,
+    capacity: rule.capacity,
+    pricePence: rule.price_pence,
+    priceLabel: formatGBP(rule.price_pence),
+    title: rule.title,
+    level: rule.level,
+    blurb: rule.blurb,
+    location: rule.location,
+    address: rule.address,
+    instructor: rule.instructor,
+    enabled: Number(rule.enabled) !== 0,
+    createdAt: rule.created_at,
+    updatedAt: rule.updated_at,
   };
 }
 

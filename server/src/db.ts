@@ -28,6 +28,25 @@ function migrate(db: DatabaseSync) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS availability_rules (
+      id TEXT PRIMARY KEY,
+      weekday INTEGER NOT NULL,
+      hour INTEGER NOT NULL,
+      minute INTEGER NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      capacity INTEGER NOT NULL,
+      price_pence INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      level TEXT NOT NULL,
+      blurb TEXT NOT NULL,
+      location TEXT NOT NULL,
+      address TEXT NOT NULL,
+      instructor TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS slots (
       id TEXT PRIMARY KEY,
       rule_id TEXT,
@@ -40,7 +59,9 @@ function migrate(db: DatabaseSync) {
       blurb TEXT NOT NULL,
       location TEXT NOT NULL,
       address TEXT NOT NULL,
-      instructor TEXT NOT NULL
+      instructor TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      cancelled INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS slots_rule_start ON slots(rule_id, starts_at);
@@ -88,6 +109,15 @@ function migrate(db: DatabaseSync) {
       paid INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  ensureColumn(db, "slots", "enabled", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(db, "slots", "cancelled", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string) {
+  const rows = getRows<{ name: string }>(db, `PRAGMA table_info(${table})`);
+  if (rows.some((row) => row.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export function getRow<T>(db: DatabaseSync, sql: string, ...params: SQLInputValue[]): T | undefined {

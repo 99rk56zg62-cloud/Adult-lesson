@@ -10,6 +10,25 @@ export type UserRow = {
   created_at: string;
 };
 
+export type AvailabilityRuleRow = {
+  id: string;
+  weekday: number;
+  hour: number;
+  minute: number;
+  duration_minutes: number;
+  capacity: number;
+  price_pence: number;
+  title: string;
+  level: string;
+  blurb: string;
+  location: string;
+  address: string;
+  instructor: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SlotRow = {
   id: string;
   rule_id: string | null;
@@ -23,6 +42,8 @@ export type SlotRow = {
   location: string;
   address: string;
   instructor: string;
+  enabled: number;
+  cancelled: number;
 };
 
 export type BookingRow = {
@@ -61,6 +82,7 @@ export type SlotDto = {
   endsAt: string;
   dayLabel: string;
   timeLabel: string;
+  startTimeLabel: string;
   dateKey: string;
   weekKey: string;
   weekLabel: string;
@@ -73,6 +95,41 @@ export type SlotDto = {
   bookable: boolean;
   unavailableReason: string | null;
   soon: boolean;
+  enabled: boolean;
+  cancelled: boolean;
+  ruleId: string | null;
+};
+
+export type DayAvailability = {
+  dateKey: string;
+  dayLabel: string;
+  weekdayShort: string;
+  dayOfMonth: number;
+  openCount: number;
+  totalCount: number;
+  selectable: boolean;
+};
+
+export type AvailabilityRuleDto = {
+  id: string;
+  weekday: number;
+  weekdayLabel: string;
+  hour: number;
+  minute: number;
+  timeLabel: string;
+  durationMinutes: number;
+  capacity: number;
+  pricePence: number;
+  priceLabel: string;
+  title: string;
+  level: string;
+  blurb: string;
+  location: string;
+  address: string;
+  instructor: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type BookingDto = {
@@ -106,4 +163,5 @@ export type PublicConfig = {
   paymentsMode: "stripe" | "mock";
   calendarConfigured: boolean;
   demoLogin: { email: string; password: string; name: string } | null;
+  adminUrl?: string | null;
 };

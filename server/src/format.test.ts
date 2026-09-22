@@ -21,6 +21,8 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
     location: "Riverside Lido",
     address: "Pool Lane, Bristol",
     instructor: "Sam Okonkwo",
+    enabled: 1,
+    cancelled: 0,
   };
   const slot = presentSlot(row, 1, now);
   assert.equal(slot.dayLabel, "Wednesday 23 September");

@@ -5,6 +5,13 @@ import { ZodError } from "zod";
 import { z } from "zod";
 import { DateTime } from "luxon";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  adminAvailabilityPage,
+  adminDisabledPage,
+  adminLoginPage,
+  adminOverviewPage,
+  adminSessionsPage,
+} from "./admin-pages.js";
 import { readAccessToken } from "./auth.js";
 import type { CalendarGateway } from "./calendar.js";
 import type { AppConfig } from "./config.js";
@@ -13,6 +20,7 @@ import { infoPage, mockCheckoutPage, redirectPage } from "./pages.js";
 import { isMockPayments, type PaymentProvider, type WebhookVerifier } from "./payments.js";
 import { appendQuery, isAllowedReturnUrl } from "./return-url.js";
 import { createService, type LidoService } from "./service.js";
+import { ZONE } from "./time.js";
 
 export type AppDeps = {
   db: DatabaseSync;
@@ -22,6 +30,8 @@ export type AppDeps = {
   clock?: () => DateTime;
   verifyWebhook?: WebhookVerifier;
 };
+
+const ADMIN_COOKIE = "lido_admin";
 
 const registerSchema = z.object({
   name: z.string().trim().min(2, "Enter your name.").max(80, "Name is too long."),
@@ -50,17 +60,35 @@ const confirmSchema = z.object({
   sessionId: z.string().min(4, "Missing payment session."),
 });
 
+const levelSchema = z.enum(["Beginners", "Improvers", "Confidence", "Technique"]);
+
 const adminSlotSchema = z.object({
   startsAt: z.string().min(10, "Enter a start time."),
   durationMinutes: z.number().int().min(15).max(180),
   capacity: z.number().int().min(1).max(50),
   pricePence: z.number().int().min(50).max(100_000),
   title: z.string().trim().min(2).max(80),
-  level: z.enum(["Beginners", "Improvers", "Confidence", "Technique"]),
+  level: levelSchema,
   location: z.string().trim().min(2).max(80),
   address: z.string().trim().min(2).max(120),
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
+});
+
+const adminRuleSchema = z.object({
+  weekday: z.number().int().min(1).max(7),
+  hour: z.number().int().min(0).max(23),
+  minute: z.number().int().min(0).max(59),
+  durationMinutes: z.number().int().min(15).max(180),
+  capacity: z.number().int().min(1).max(50),
+  pricePence: z.number().int().min(50).max(100_000),
+  title: z.string().trim().min(2).max(80),
+  level: levelSchema,
+  location: z.string().trim().min(2).max(80),
+  address: z.string().trim().min(2).max(120),
+  instructor: z.string().trim().min(2).max(80),
+  blurb: z.string().trim().min(2).max(400),
+  enabled: z.boolean().optional(),
 });
 
 function sendError(res: Response, status: number, code: string, message: string) {
@@ -89,6 +117,71 @@ function tokensMatch(left: string, right: string): boolean {
   const b = Buffer.from(right);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+function readCookie(req: Request, name: string): string | null {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+function field(body: any, name: string): string {
+  const value = body?.[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function poundsToPence(value: string): number {
+  const pounds = Number(value);
+  if (!Number.isFinite(pounds)) throw new AppError(400, "VALIDATION", "Enter a valid price.");
+  return Math.round(pounds * 100);
+}
+
+function parseTime(value: string): { hour: number; minute: number } {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) throw new AppError(400, "VALIDATION", "Enter a valid start time.");
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function ruleFromForm(body: any) {
+  const time = parseTime(field(body, "time") || "19:00");
+  return adminRuleSchema.parse({
+    weekday: Number(field(body, "weekday")),
+    hour: time.hour,
+    minute: time.minute,
+    durationMinutes: Number(field(body, "durationMinutes")),
+    capacity: Number(field(body, "capacity")),
+    pricePence: poundsToPence(field(body, "pricePounds") || "0"),
+    title: field(body, "title"),
+    level: field(body, "level"),
+    location: field(body, "location"),
+    address: field(body, "address"),
+    instructor: field(body, "instructor"),
+    blurb: field(body, "blurb"),
+    enabled: true,
+  });
+}
+
+function oneOffFromForm(body: any) {
+  const local = field(body, "startsAtLocal");
+  if (!local) throw new AppError(400, "VALIDATION", "Enter a start time.");
+  const starts = DateTime.fromISO(local, { zone: ZONE });
+  if (!starts.isValid) throw new AppError(400, "VALIDATION", "Enter a valid start time.");
+  return adminSlotSchema.parse({
+    startsAt: starts.toISO()!,
+    durationMinutes: Number(field(body, "durationMinutes")),
+    capacity: Number(field(body, "capacity")),
+    pricePence: poundsToPence(field(body, "pricePounds") || "0"),
+    title: field(body, "title"),
+    level: field(body, "level"),
+    location: field(body, "location"),
+    address: field(body, "address"),
+    instructor: field(body, "instructor"),
+    blurb: field(body, "blurb"),
+  });
 }
 
 function sendClientRedirect(res: Response, targetUrl: string, heading: string, message: string) {
@@ -181,12 +274,34 @@ export function createApp(deps: AppDeps) {
     }
   }
 
+  function adminAuthed(req: Request): boolean {
+    if (!deps.config.adminToken) return false;
+    const cookie = readCookie(req, ADMIN_COOKIE) ?? "";
+    const header = req.header("x-admin-token") ?? "";
+    return tokensMatch(cookie, deps.config.adminToken) || tokensMatch(header, deps.config.adminToken);
+  }
+
+  function requireAdminPage(req: Request, res: Response): boolean {
+    if (!deps.config.adminToken) {
+      res.status(404).type("html").send(adminDisabledPage());
+      return false;
+    }
+    if (!adminAuthed(req)) {
+      res.redirect(303, "/admin/login");
+      return false;
+    }
+    return true;
+  }
+
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, service: "lido-api" });
   });
 
   app.get("/api/config", (_req, res) => {
-    res.json(service.publicConfig());
+    res.json({
+      ...service.publicConfig(),
+      adminUrl: deps.config.adminToken ? `${deps.config.apiPublicUrl}/admin` : null,
+    });
   });
 
   app.post(
@@ -412,6 +527,194 @@ export function createApp(deps: AppDeps) {
     }),
   );
 
+  app.patch(
+    "/api/admin/slots/:id",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const body = z
+        .object({
+          capacity: z.number().int().min(1).max(50).optional(),
+          pricePence: z.number().int().min(50).max(100_000).optional(),
+          title: z.string().trim().min(2).max(80).optional(),
+          level: levelSchema.optional(),
+          location: z.string().trim().min(2).max(80).optional(),
+          address: z.string().trim().min(2).max(120).optional(),
+          instructor: z.string().trim().min(2).max(80).optional(),
+          blurb: z.string().trim().min(2).max(400).optional(),
+          cancelled: z.boolean().optional(),
+        })
+        .parse(req.body);
+      res.json({ slot: service.updateAdminSlot(param(req.params.id), body) });
+    }),
+  );
+
+  app.get(
+    "/api/admin/rules",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({ rules: service.listAdminRules() });
+    }),
+  );
+
+  app.post(
+    "/api/admin/rules",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.status(201).json({ rule: service.createAdminRule(adminRuleSchema.parse(req.body)) });
+    }),
+  );
+
+  app.put(
+    "/api/admin/rules/:id",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({ rule: service.updateAdminRule(param(req.params.id), adminRuleSchema.parse(req.body)) });
+    }),
+  );
+
+  app.post(
+    "/api/admin/rules/:id/enabled",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const enabled = z.object({ enabled: z.boolean() }).parse(req.body).enabled;
+      res.json({ rule: service.setAdminRuleEnabled(param(req.params.id), enabled) });
+    }),
+  );
+
+  app.get(
+    "/admin/login",
+    route(async (req, res) => {
+      if (!deps.config.adminToken) {
+        res.status(404).type("html").send(adminDisabledPage());
+        return;
+      }
+      if (adminAuthed(req)) {
+        res.redirect(303, "/admin");
+        return;
+      }
+      res.type("html").send(adminLoginPage(queryValue(req.query.error)));
+    }),
+  );
+
+  app.post(
+    "/admin/login",
+    route(async (req, res) => {
+      if (!deps.config.adminToken) {
+        res.status(404).type("html").send(adminDisabledPage());
+        return;
+      }
+      const token = field(req.body, "token");
+      if (!tokensMatch(token, deps.config.adminToken)) {
+        res.type("html").send(adminLoginPage("That admin token didn't match."));
+        return;
+      }
+      res.setHeader(
+        "Set-Cookie",
+        `${ADMIN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`,
+      );
+      res.redirect(303, "/admin");
+    }),
+  );
+
+  app.get("/admin/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+    res.redirect(303, "/admin/login");
+  });
+
+  app.get(
+    "/admin",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminOverviewPage({
+          rules: service.listAdminRules(),
+          upcoming: service.listAdminSlots(),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.get(
+    "/admin/availability",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminAvailabilityPage({
+          rules: service.listAdminRules(),
+          editId: queryValue(req.query.edit),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/admin/rules",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.createAdminRule(ruleFromForm(req.body));
+      res.redirect(303, "/admin/availability?notice=" + encodeURIComponent("Weekly class added."));
+    }),
+  );
+
+  app.post(
+    "/admin/rules/:id",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.updateAdminRule(param(req.params.id), ruleFromForm(req.body));
+      res.redirect(303, "/admin/availability?notice=" + encodeURIComponent("Weekly class updated."));
+    }),
+  );
+
+  app.post(
+    "/admin/rules/:id/toggle",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      const enabled = field(req.body, "enabled") === "1";
+      service.setAdminRuleEnabled(param(req.params.id), enabled);
+      res.redirect(
+        303,
+        "/admin/availability?notice=" + encodeURIComponent(enabled ? "Weekly class turned on." : "Weekly class turned off."),
+      );
+    }),
+  );
+
+  app.get(
+    "/admin/sessions",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminSessionsPage({
+          slots: service.listAdminSlots(),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/admin/slots",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.createAdminSlot(oneOffFromForm(req.body));
+      res.redirect(303, "/admin/sessions?notice=" + encodeURIComponent("One-off session added."));
+    }),
+  );
+
+  app.post(
+    "/admin/slots/:id/cancel",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      const cancelled = field(req.body, "cancelled") === "1";
+      service.updateAdminSlot(param(req.params.id), { cancelled });
+      res.redirect(
+        303,
+        "/admin/sessions?notice=" + encodeURIComponent(cancelled ? "Session cancelled for customers." : "Session restored."),
+      );
+    }),
+  );
+
   app.use((_req, res) => {
     sendError(res, 404, "NOT_FOUND", "That route doesn't exist.");
   });
@@ -423,6 +726,10 @@ export function createApp(deps: AppDeps) {
       return;
     }
     if (error instanceof AppError) {
+      if (_req.path.startsWith("/admin") && !(_req.path.startsWith("/api/"))) {
+        res.status(error.status).type("html").send(adminLoginPage(error.message));
+        return;
+      }
       sendError(res, error.status, error.code, error.message);
       return;
     }
