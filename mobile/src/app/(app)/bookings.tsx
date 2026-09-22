@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
 import { Banner, Button, TopBar } from "@/components/ui";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { Booking } from "@/types";
 
 export default function BookingsScreen() {
@@ -66,7 +66,7 @@ export default function BookingsScreen() {
 function BookingRow({ booking }: { booking: Booking }) {
   const pending = booking.status === "pending_payment";
   const isCourse = booking.kind === "course";
-  const level = isCourse ? booking.course?.level ?? "Beginners" : booking.slot?.level ?? "Beginners";
+  const party = isCourse ? booking.course?.partyLabel : booking.slot?.partyLabel;
   const title = isCourse ? booking.course?.title ?? "Crash course" : booking.slot?.title ?? "Lesson";
   const when = isCourse
     ? `${booking.course?.dateSummary}\n${booking.course?.dailyTimeLabel} daily`
@@ -75,12 +75,13 @@ function BookingRow({ booking }: { booking: Booking }) {
 
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/booking/${booking.id}`)} style={styles.card}>
-      <View style={[styles.bar, { backgroundColor: levelColor(level) }]} />
+      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
       <View style={styles.body}>
         <Text style={styles.kicker}>{pending ? "Payment not finished" : `${booking.reference}${isCourse ? " · Course" : ""}`}</Text>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.meta}>
           {when}
+          {party ? `\n${party}` : ""}
           {where ? `\n${where}` : ""}
         </Text>
         {pending && booking.holdExpiresLabel ? <Text style={styles.hold}>Held until {booking.holdExpiresLabel}</Text> : null}

@@ -45,6 +45,10 @@ export function weekParts(start: DateTime): { weekKey: string; weekLabel: string
   return { weekKey, weekLabel };
 }
 
+export function partyLabel(capacity: number): string {
+  return capacity <= 1 ? "1-to-1" : "1-to-2";
+}
+
 export function googleCalendarTemplateUrl(input: {
   title: string;
   startsAt: DateTime;
@@ -52,7 +56,6 @@ export function googleCalendarTemplateUrl(input: {
   location: string;
   address: string;
   reference: string;
-  level: string;
   kind?: "lesson" | "course";
 }): string {
   const stamp = (value: DateTime) => value.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
@@ -61,7 +64,7 @@ export function googleCalendarTemplateUrl(input: {
     action: "TEMPLATE",
     text: `${label} — ${input.title}`,
     dates: `${stamp(input.startsAt)}/${stamp(input.endsAt)}`,
-    details: `Lido booking ${input.reference}. Adult swimming (${input.level}) at ${input.location}.`,
+    details: `Lido booking ${input.reference}. Adult swimming at ${input.location}.`,
     location: `${input.location}, ${input.address}`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -96,12 +99,13 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
     local.year === now.setZone(ZONE).year
       ? local.toFormat("cccc d LLLL")
       : local.toFormat("cccc d LLLL yyyy");
-  const spotsLabel = spotsLeft <= 0 ? "Full" : spotsLeft === 1 ? "1 spot left" : `${spotsLeft} spots left`;
+  const sessionType = partyLabel(slot.capacity);
+  const spotsLabel = spotsLeft <= 0 ? "Booked" : sessionType;
   return {
     id: slot.id,
     locationId: slot.location_id,
     title: slot.title,
-    level: slot.level,
+    partyLabel: sessionType,
     blurb: slot.blurb,
     location: slot.location,
     address: slot.address,
@@ -142,10 +146,10 @@ export function presentRule(rule: AvailabilityRuleRow, location: LocationRow): A
     timeLabel: clockMinutesLabel(rule.hour, rule.minute),
     durationMinutes: rule.duration_minutes,
     capacity: rule.capacity,
+    partyLabel: partyLabel(rule.capacity),
     pricePence: rule.price_pence,
     priceLabel: formatGBP(rule.price_pence),
     title: rule.title,
-    level: rule.level,
     blurb: rule.blurb,
     instructor: rule.instructor,
     enabled: Number(rule.enabled) !== 0,
@@ -162,10 +166,10 @@ export function presentCourseProduct(product: CourseProductRow, location: Locati
     days: product.days,
     dailyMinutes: product.daily_minutes,
     capacity: product.capacity,
+    partyLabel: partyLabel(product.capacity),
     pricePence: product.price_pence,
     priceLabel: formatGBP(product.price_pence),
     title: product.title,
-    level: product.level,
     blurb: product.blurb,
     instructor: product.instructor,
     enabled: Number(product.enabled) !== 0,
@@ -217,13 +221,14 @@ export function presentCourseRun(
   if (!unavailableReason && spotsLeft <= 0) {
     unavailableReason = "This course is full.";
   }
-  const spotsLabel = spotsLeft <= 0 ? "Full" : spotsLeft === 1 ? "1 place left" : `${spotsLeft} places left`;
+  const sessionType = partyLabel(run.capacity);
+  const spotsLabel = spotsLeft <= 0 ? "Booked" : sessionType;
   return {
     id: run.id,
     productId: run.product_id,
     locationId: run.location_id,
     title: run.title,
-    level: run.level,
+    partyLabel: sessionType,
     blurb: run.blurb,
     instructor: run.instructor,
     location: run.location,
@@ -306,7 +311,6 @@ export function presentBooking(
               location: details.run.location,
               address: details.run.address,
               reference: booking.reference,
-              level: details.run.level,
               kind: "course",
             })
           : null,
@@ -358,7 +362,6 @@ export function presentBooking(
             location: slotRow.location,
             address: slotRow.address,
             reference: booking.reference,
-            level: slotRow.level,
             kind: "lesson",
           })
         : null,

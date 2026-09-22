@@ -148,7 +148,7 @@ export function createService(deps: ServiceDeps) {
     }
   }
 
-  function listVisibleSlots(now: DateTime, filters?: { locationId?: string; durationMinutes?: number }): SlotDto[] {
+  function listVisibleSlots(now: DateTime, filters?: { locationId?: string; durationMinutes?: number; partySize?: number }): SlotDto[] {
     expireStale();
     materializeEnabledRules(db, now);
     const occupied = occupiedMap();
@@ -165,6 +165,10 @@ export function createService(deps: ServiceDeps) {
       sql += ` AND duration_minutes = ?`;
       params.push(filters.durationMinutes);
     }
+    if (filters?.partySize !== undefined) {
+      sql += ` AND capacity = ?`;
+      params.push(filters.partySize);
+    }
     sql += ` ORDER BY starts_at`;
     const rows = getRows<SlotRow>(db, sql, ...params);
     return rows
@@ -172,7 +176,7 @@ export function createService(deps: ServiceDeps) {
       .filter((slot) => getBookingBlock(fromIso(slot.startsAt), now).ok);
   }
 
-  function listVisibleCourses(now: DateTime, filters?: { locationId?: string; days?: number }): CourseRunDto[] {
+  function listVisibleCourses(now: DateTime, filters?: { locationId?: string; days?: number; partySize?: number }): CourseRunDto[] {
     expireStale();
     const occupied = courseOccupiedMap();
     const params: (string | number)[] = [];
@@ -184,6 +188,10 @@ export function createService(deps: ServiceDeps) {
     if (filters?.days !== undefined) {
       sql += ` AND days = ?`;
       params.push(filters.days);
+    }
+    if (filters?.partySize !== undefined) {
+      sql += ` AND capacity = ?`;
+      params.push(filters.partySize);
     }
     sql += ` ORDER BY first_date, daily_hour, daily_minute`;
     const rows = getRows<CourseRunRow>(db, sql, ...params);
@@ -326,8 +334,8 @@ export function createService(deps: ServiceDeps) {
         : `Adult swimming lesson — ${presented.slot?.title ?? "lesson"}`;
     const description =
       booking.kind === "course"
-        ? `${presented.course?.level ?? ""} · ${presented.course?.location ?? ""} · ${presented.course?.dateSummary ?? ""}`
-        : `${presented.slot?.level ?? ""} · ${presented.slot?.location ?? ""} · ${presented.slot?.dayLabel ?? ""} ${presented.slot?.timeLabel ?? ""}`;
+        ? `${presented.course?.partyLabel ?? "Private"} · ${presented.course?.location ?? ""} · ${presented.course?.dateSummary ?? ""}`
+        : `${presented.slot?.partyLabel ?? "Private"} · ${presented.slot?.location ?? ""} · ${presented.slot?.dayLabel ?? ""} ${presented.slot?.timeLabel ?? ""}`;
     try {
       const session = await payments.createCheckout({
         bookingId: booking.id,
@@ -365,14 +373,14 @@ export function createService(deps: ServiceDeps) {
         const last = sessions[sessions.length - 1];
         if (!first || !last) return null;
         summary = `Crash course — ${run.title}`;
-        description = `Lido booking ${booking.reference}. ${run.days}-day adult crash course (${run.level}) with ${run.instructor}.`;
+        description = `Lido booking ${booking.reference}. ${run.days}-day adult crash course with ${run.instructor}.`;
         location = `${run.location}, ${run.address}`;
         startsAt = fromIso(first.starts_at);
         endsAt = fromIso(last.ends_at);
       } else if (booking.slot_id) {
         const slot = requireSlot(booking.slot_id);
         summary = `Swimming lesson — ${slot.title}`;
-        description = `Lido booking ${booking.reference}. Adult swimming lesson (${slot.level}) with ${slot.instructor}.`;
+        description = `Lido booking ${booking.reference}. Adult swimming lesson with ${slot.instructor}.`;
         location = `${slot.location}, ${slot.address}`;
         startsAt = fromIso(slot.starts_at);
         endsAt = fromIso(slot.ends_at);
@@ -450,10 +458,13 @@ export function createService(deps: ServiceDeps) {
       return toUser(requireUser(userId));
     },
 
-    listSlots(userId: string, filters?: { locationId?: string; durationMinutes?: number }) {
+    listSlots(userId: string, filters?: { locationId?: string; durationMinutes?: number; partySize?: number }) {
       requireUser(userId);
       if (filters?.durationMinutes !== undefined) {
         assertLessonDuration(filters.durationMinutes);
+      }
+      if (filters?.partySize !== undefined && filters.partySize !== 1 && filters.partySize !== 2) {
+        throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
       }
       if (filters?.locationId) requireLocation(filters.locationId);
       const now = clock();
@@ -470,9 +481,12 @@ export function createService(deps: ServiceDeps) {
       };
     },
 
-    listCourses(userId: string, filters?: { locationId?: string; days?: number }) {
+    listCourses(userId: string, filters?: { locationId?: string; days?: number; partySize?: number }) {
       requireUser(userId);
       if (filters?.days !== undefined) assertCourseDays(filters.days);
+      if (filters?.partySize !== undefined && filters.partySize !== 1 && filters.partySize !== 2) {
+        throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
+      }
       if (filters?.locationId) requireLocation(filters.locationId);
       const now = clock();
       return {
@@ -1009,11 +1023,11 @@ export function createService(deps: ServiceDeps) {
       capacity: number;
       pricePence: number;
       title: string;
-      level: string;
       instructor: string;
       blurb: string;
     }): SlotDto {
       assertLessonDuration(input.durationMinutes);
+      assertPartyCapacity(input.capacity);
       const place = requireLocation(input.locationId);
       const starts = parseInstant(input.startsAt);
       if (!starts) throw new AppError(400, "VALIDATION", "Enter a valid start time.");
@@ -1033,7 +1047,7 @@ export function createService(deps: ServiceDeps) {
         input.capacity,
         input.pricePence,
         input.title,
-        input.level,
+        "",
         input.blurb,
         place.name,
         place.address,
@@ -1048,12 +1062,12 @@ export function createService(deps: ServiceDeps) {
         capacity?: number;
         pricePence?: number;
         title?: string;
-        level?: string;
         instructor?: string;
         blurb?: string;
         cancelled?: boolean;
       },
     ): SlotDto {
+      if (input.capacity !== undefined) assertPartyCapacity(input.capacity);
       const slot = requireSlot(slotId);
       db.prepare(
         `UPDATE slots SET
@@ -1063,7 +1077,7 @@ export function createService(deps: ServiceDeps) {
         input.capacity ?? slot.capacity,
         input.pricePence ?? slot.price_pence,
         input.title ?? slot.title,
-        input.level ?? slot.level,
+        "",
         input.instructor ?? slot.instructor,
         input.blurb ?? slot.blurb,
         input.cancelled === undefined ? slot.cancelled : input.cancelled ? 1 : 0,
@@ -1134,12 +1148,12 @@ export function createService(deps: ServiceDeps) {
       capacity: number;
       pricePence: number;
       title: string;
-      level: string;
       blurb: string;
       instructor: string;
       enabled?: boolean;
     }): CourseProductDto {
       assertCourseDays(input.days);
+      assertPartyCapacity(input.capacity);
       requireLocation(input.locationId);
       const id = randomUUID();
       const stamp = nowIso();
@@ -1156,7 +1170,7 @@ export function createService(deps: ServiceDeps) {
         input.capacity,
         input.pricePence,
         input.title,
-        input.level,
+        "",
         input.blurb,
         input.instructor,
         input.enabled === false ? 0 : 1,
@@ -1175,7 +1189,6 @@ export function createService(deps: ServiceDeps) {
         capacity?: number;
         pricePence?: number;
         title?: string;
-        level?: string;
         blurb?: string;
         instructor?: string;
         enabled?: boolean;
@@ -1184,6 +1197,7 @@ export function createService(deps: ServiceDeps) {
       const product = getRow<CourseProductRow>(db, `SELECT * FROM course_products WHERE id = ?`, productId);
       if (!product) throw new AppError(404, "NOT_FOUND", "That course product doesn't exist.");
       if (input.days !== undefined) assertCourseDays(input.days);
+      if (input.capacity !== undefined) assertPartyCapacity(input.capacity);
       if (input.locationId) requireLocation(input.locationId);
       db.prepare(
         `UPDATE course_products SET
@@ -1196,7 +1210,7 @@ export function createService(deps: ServiceDeps) {
         input.capacity ?? product.capacity,
         input.pricePence ?? product.price_pence,
         input.title ?? product.title,
-        input.level ?? product.level,
+        "",
         input.blurb ?? product.blurb,
         input.instructor ?? product.instructor,
         input.enabled === undefined ? product.enabled : input.enabled ? 1 : 0,
@@ -1248,7 +1262,7 @@ export function createService(deps: ServiceDeps) {
         input.capacity ?? product.capacity,
         input.pricePence ?? product.price_pence,
         product.title,
-        product.level,
+        "",
         product.blurb,
         product.instructor,
         place.name,
@@ -1265,6 +1279,7 @@ export function createService(deps: ServiceDeps) {
       runId: string,
       input: { cancelled?: boolean; enabled?: boolean; capacity?: number; pricePence?: number },
     ): CourseRunDto {
+      if (input.capacity !== undefined) assertPartyCapacity(input.capacity);
       const run = requireCourseRun(runId);
       db.prepare(
         `UPDATE course_runs SET
@@ -1283,8 +1298,15 @@ export function createService(deps: ServiceDeps) {
   };
 }
 
+function assertPartyCapacity(capacity: number) {
+  if (capacity !== 1 && capacity !== 2) {
+    throw new AppError(400, "VALIDATION", "Sessions are 1-to-1 or 1-to-2 only.");
+  }
+}
+
 function validateRuleInput(input: RuleInput) {
   assertLessonDuration(input.durationMinutes);
+  assertPartyCapacity(input.capacity);
   if (input.weekday < 1 || input.weekday > 7) {
     throw new AppError(400, "VALIDATION", "Choose a day of the week.");
   }

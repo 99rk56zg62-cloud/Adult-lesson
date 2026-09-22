@@ -72,16 +72,13 @@ const confirmSchema = z.object({
   sessionId: z.string().min(4, "Missing payment session."),
 });
 
-const levelSchema = z.enum(["Beginners", "Improvers", "Confidence", "Technique"]);
-
 const adminSlotSchema = z.object({
   locationId: z.string().min(1, "Choose a location."),
   startsAt: z.string().min(10, "Enter a start time."),
   durationMinutes: z.union([z.literal(30), z.literal(60)]),
-  capacity: z.number().int().min(1).max(50),
+  capacity: z.number().int().min(1).max(2),
   pricePence: z.number().int().min(50).max(100_000),
   title: z.string().trim().min(2).max(80),
-  level: levelSchema,
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
 });
@@ -92,10 +89,9 @@ const adminRuleSchema = z.object({
   hour: z.number().int().min(0).max(23),
   minute: z.number().int().min(0).max(59),
   durationMinutes: z.union([z.literal(30), z.literal(60)]),
-  capacity: z.number().int().min(1).max(50),
+  capacity: z.number().int().min(1).max(2),
   pricePence: z.number().int().min(50).max(100_000),
   title: z.string().trim().min(2).max(80),
-  level: levelSchema,
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
   enabled: z.boolean().optional(),
@@ -110,10 +106,9 @@ const adminLocationSchema = z.object({
 const adminCourseProductSchema = z.object({
   locationId: z.string().min(1),
   days: z.union([z.literal(3), z.literal(4), z.literal(5)]),
-  capacity: z.number().int().min(1).max(20),
+  capacity: z.number().int().min(1).max(2),
   pricePence: z.number().int().min(100).max(500_000),
   title: z.string().trim().min(2).max(80),
-  level: levelSchema,
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
   enabled: z.boolean().optional(),
@@ -145,6 +140,14 @@ function queryValue(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value;
   if (Array.isArray(value) && typeof value[0] === "string") return value[0];
   return null;
+}
+
+function partySizeQuery(value: unknown): number | undefined {
+  const raw = queryValue(value);
+  if (!raw) return undefined;
+  const size = Number(raw);
+  if (size !== 1 && size !== 2) throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
+  return size;
 }
 
 function tokensMatch(left: string, right: string): boolean {
@@ -192,7 +195,6 @@ function ruleFromForm(body: any) {
     capacity: Number(field(body, "capacity")),
     pricePence: poundsToPence(field(body, "pricePounds") || "0"),
     title: field(body, "title"),
-    level: field(body, "level"),
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
     enabled: true,
@@ -211,7 +213,6 @@ function oneOffFromForm(body: any) {
     capacity: Number(field(body, "capacity")),
     pricePence: poundsToPence(field(body, "pricePounds") || "0"),
     title: field(body, "title"),
-    level: field(body, "level"),
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
   });
@@ -224,7 +225,6 @@ function courseProductFromForm(body: any) {
     capacity: Number(field(body, "capacity")),
     pricePence: poundsToPence(field(body, "pricePounds") || "0"),
     title: field(body, "title"),
-    level: field(body, "level"),
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
     enabled: true,
@@ -400,7 +400,8 @@ export function createApp(deps: AppDeps) {
       const locationId = queryValue(req.query.locationId) ?? undefined;
       const durationRaw = queryValue(req.query.durationMinutes);
       const durationMinutes = durationRaw ? Number(durationRaw) : undefined;
-      res.json(service.listSlots(userId(res), { locationId, durationMinutes }));
+      const partySize = partySizeQuery(req.query.partySize);
+      res.json(service.listSlots(userId(res), { locationId, durationMinutes, partySize }));
     }),
   );
 
@@ -411,7 +412,8 @@ export function createApp(deps: AppDeps) {
       const locationId = queryValue(req.query.locationId) ?? undefined;
       const daysRaw = queryValue(req.query.days);
       const days = daysRaw ? Number(daysRaw) : undefined;
-      res.json(service.listCourses(userId(res), { locationId, days }));
+      const partySize = partySizeQuery(req.query.partySize);
+      res.json(service.listCourses(userId(res), { locationId, days, partySize }));
     }),
   );
 
@@ -673,7 +675,7 @@ export function createApp(deps: AppDeps) {
         .object({
           cancelled: z.boolean().optional(),
           enabled: z.boolean().optional(),
-          capacity: z.number().int().min(1).max(20).optional(),
+          capacity: z.number().int().min(1).max(2).optional(),
           pricePence: z.number().int().min(100).max(500_000).optional(),
         })
         .parse(req.body);
@@ -703,10 +705,9 @@ export function createApp(deps: AppDeps) {
       requireAdmin(req);
       const body = z
         .object({
-          capacity: z.number().int().min(1).max(50).optional(),
+          capacity: z.number().int().min(1).max(2).optional(),
           pricePence: z.number().int().min(50).max(100_000).optional(),
           title: z.string().trim().min(2).max(80).optional(),
-          level: levelSchema.optional(),
           instructor: z.string().trim().min(2).max(80).optional(),
           blurb: z.string().trim().min(2).max(400).optional(),
           cancelled: z.boolean().optional(),

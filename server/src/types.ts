@@ -140,7 +140,7 @@ export type SlotDto = {
   id: string;
   locationId: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   location: string;
   address: string;
@@ -192,7 +192,7 @@ export type AvailabilityRuleDto = {
   pricePence: number;
   priceLabel: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   instructor: string;
   enabled: boolean;
@@ -214,7 +214,7 @@ export type CourseRunDto = {
   productId: string;
   locationId: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   instructor: string;
   location: string;
@@ -251,7 +251,7 @@ export type CourseProductDto = {
   pricePence: number;
   priceLabel: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   instructor: string;
   enabled: boolean;

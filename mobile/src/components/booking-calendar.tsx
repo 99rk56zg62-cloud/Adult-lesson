@@ -109,7 +109,7 @@ export function BookingCalendar({
           );
         })}
       </View>
-      <Text style={styles.hint}>Open dates are highlighted. Grey dates are full or have no places left.</Text>
+      <Text style={styles.hint}>Open dates are highlighted. Grey dates are booked or have no times.</Text>
     </View>
   );
 }

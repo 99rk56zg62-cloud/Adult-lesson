@@ -117,7 +117,7 @@ async function register(ctx: Ctx, email = `swimmer-${randomUUID()}@example.com`)
 }
 
 function roomy(slots: SlotDto[]): SlotDto {
-  const slot = slots.find((item) => item.bookable && !item.soon && item.capacity >= 8 && item.spotsLeft >= 8);
+  const slot = slots.find((item) => item.bookable && !item.soon && item.spotsLeft >= 1);
   if (!slot) throw new Error("expected an open session more than 24 hours away");
   return slot;
 }
@@ -125,11 +125,12 @@ function roomy(slots: SlotDto[]): SlotDto {
 async function listSlots(
   ctx: Ctx,
   token: string,
-  filters?: { locationId?: string; durationMinutes?: number },
+  filters?: { locationId?: string; durationMinutes?: number; partySize?: number },
 ): Promise<SlotDto[]> {
   const query = new URLSearchParams();
   if (filters?.locationId) query.set("locationId", filters.locationId);
   if (filters?.durationMinutes !== undefined) query.set("durationMinutes", String(filters.durationMinutes));
+  if (filters?.partySize !== undefined) query.set("partySize", String(filters.partySize));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   const response = await api(ctx.base, `/api/slots${suffix}`, { token });
   assert.equal(response.status, 200);
@@ -271,8 +272,7 @@ describe("lido api", { concurrency: 1 }, () => {
           durationMinutes: 30,
           capacity: 1,
           pricePence: 2200,
-          title: "Admin beginners",
-          level: "Beginners",
+          title: "Admin lesson",
           instructor: "Helen Ward",
           blurb: "A single-spot session used to prove the capacity rule.",
         },
@@ -333,7 +333,7 @@ describe("lido api", { concurrency: 1 }, () => {
 
       const open = await payFor(ctx, token, later.id);
       assert.equal(open.rescheduleAllowed, true);
-      const target = slots.find((slot) => slot.bookable && !slot.soon && slot.id !== later.id && slot.spotsLeft >= 8);
+      const target = slots.find((slot) => slot.bookable && !slot.soon && slot.id !== later.id && slot.spotsLeft >= 1);
       assert.ok(target);
       const before = await listSlots(ctx, token);
       const moved = await api(ctx.base, `/api/bookings/${open.id}/reschedule`, {
@@ -360,10 +360,9 @@ describe("lido api", { concurrency: 1 }, () => {
           startsAt: exactStart,
           locationId: FAREHAM_LOCATION_ID,
           durationMinutes: 30,
-          capacity: 4,
+          capacity: 1,
           pricePence: 2200,
-          title: "Boundary beginners",
-          level: "Beginners",
+          title: "Boundary lesson",
           instructor: "Helen Ward",
           blurb: "Starts exactly 24 hours from the test clock.",
         },
@@ -384,10 +383,9 @@ describe("lido api", { concurrency: 1 }, () => {
           startsAt: insideStart,
           locationId: FAREHAM_LOCATION_ID,
           durationMinutes: 30,
-          capacity: 4,
+          capacity: 1,
           pricePence: 2200,
-          title: "Inside beginners",
-          level: "Beginners",
+          title: "Inside lesson",
           instructor: "Helen Ward",
           blurb: "Starts just inside the 24 hour window.",
         },
@@ -539,7 +537,7 @@ describe("lido api", { concurrency: 1 }, () => {
 
       const slots = await listSlots(ctx, token);
       const first = roomy(slots);
-      const second = slots.find((slot) => slot.bookable && !slot.soon && slot.id !== first.id && slot.spotsLeft >= 8);
+      const second = slots.find((slot) => slot.bookable && !slot.soon && slot.id !== first.id && slot.spotsLeft >= 1);
       assert.ok(second);
       const booking = await payFor(ctx, token, first.id);
       assert.equal(booking.calendarSynced, true);
@@ -579,19 +577,38 @@ describe("lido api", { concurrency: 1 }, () => {
           hour: 11,
           minute: 0,
           durationMinutes: 60,
-          capacity: 4,
+          capacity: 2,
           pricePence: 3200,
-          title: "Friday gentle lane",
-          level: "Confidence",
+          title: "Friday lesson",
           instructor: "Helen Ward",
           blurb: "A calm Friday session for adults building water confidence.",
         },
       });
       assert.equal(created.status, 201, created.text);
       assert.equal(created.json.rule.weekdayLabel, "Friday");
+      assert.equal(created.json.rule.partyLabel, "1-to-2");
+      assert.equal("level" in created.json.rule, false);
+
+      const tooBig = await api(ctx.base, "/api/admin/rules", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: {
+          locationId: FAREHAM_LOCATION_ID,
+          weekday: 5,
+          hour: 12,
+          minute: 0,
+          durationMinutes: 30,
+          capacity: 8,
+          pricePence: 2200,
+          title: "Too many swimmers",
+          instructor: "Helen Ward",
+          blurb: "A class-size session that this school does not offer.",
+        },
+      });
+      assert.equal(tooBig.status, 400);
 
       const after = await listSlots(ctx, token);
-      const friday = after.filter((slot) => slot.title === "Friday gentle lane");
+      const friday = after.filter((slot) => slot.title === "Friday lesson");
       assert.ok(friday.length > 0);
       assert.ok(friday.every((slot) => slot.dateKey && slot.bookable));
 
@@ -611,7 +628,7 @@ describe("lido api", { concurrency: 1 }, () => {
       });
       assert.equal(disabled.status, 200);
       const withoutFriday = await listSlots(ctx, token);
-      assert.equal(withoutFriday.some((slot) => slot.title === "Friday gentle lane"), false);
+      assert.equal(withoutFriday.some((slot) => slot.title === "Friday lesson"), false);
 
       const form = await fetch(`${ctx.base}/admin/login`, {
         method: "POST",
@@ -641,6 +658,15 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.ok(thirty.length > 0);
       assert.ok(sixty.length > 0);
       assert.equal(thirty.some((slot) => sixty.some((other) => other.id === slot.id)), false);
+      assert.ok(thirty.every((slot) => slot.capacity === 1 || slot.capacity === 2));
+      assert.equal("level" in thirty[0]!, false);
+
+      const solo = await listSlots(ctx, token, { partySize: 1 });
+      const pair = await listSlots(ctx, token, { partySize: 2 });
+      assert.ok(solo.length > 0);
+      assert.ok(pair.length > 0);
+      assert.ok(solo.every((slot) => slot.capacity === 1 && slot.partyLabel === "1-to-1"));
+      assert.ok(pair.every((slot) => slot.capacity === 2 && slot.partyLabel === "1-to-2"));
 
       const config = await api(ctx.base, "/api/config");
       assert.deepEqual(config.json.lessonDurations, [30, 60]);
@@ -662,9 +688,16 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.ok(threeDay);
       assert.ok(threeDay.sessions.length === 3);
       assert.match(threeDay.dailyTimeLabel, /am$/);
+      assert.equal(threeDay.pricePence, 34900);
+      assert.match(threeDay.priceLabel, /349/);
+      assert.equal(courses.find((course) => course.days === 4)?.pricePence, 44900);
+      assert.equal(courses.find((course) => course.days === 5)?.pricePence, 54900);
+      assert.equal("level" in threeDay, false);
+      assert.ok(threeDay.partyLabel === "1-to-1" || threeDay.partyLabel === "1-to-2");
 
       const booked = await payForCourse(ctx, token, threeDay.id);
       assert.equal(booked.kind, "course");
+      assert.equal(booked.pricePence, 34900);
       assert.equal(booked.course!.id, threeDay.id);
       assert.equal(booked.course!.sessions.length, 3);
 

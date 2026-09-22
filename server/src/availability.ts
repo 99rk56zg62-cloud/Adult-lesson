@@ -9,6 +9,12 @@ export const WEEKDAY_LABELS = ["", "Monday", "Tuesday", "Wednesday", "Thursday",
 export const LESSON_DURATIONS = [30, 60] as const;
 export const COURSE_LENGTHS = [3, 4, 5] as const;
 export const COURSE_DAILY_MINUTES = 90;
+/** Whole-course package totals in pence. Each day is still 90 minutes. */
+export const COURSE_PACKAGE_PRICES: Record<3 | 4 | 5, number> = {
+  3: 34900,
+  4: 44900,
+  5: 54900,
+};
 export const COURSE_MORNING_START_HOUR = 6;
 export const COURSE_MORNING_END_HOUR = 9;
 export const MATERIALIZE_WEEKS = 8;
@@ -41,7 +47,8 @@ export type RuleInput = {
   capacity: number;
   pricePence: number;
   title: string;
-  level: string;
+  /** Stored for older rows. New writes leave this blank — lessons are not level-based. */
+  level?: string;
   blurb: string;
   instructor: string;
   enabled?: boolean;
@@ -101,7 +108,7 @@ export function materializeRule(db: DatabaseSync, rule: AvailabilityRuleRow, now
       rule.capacity,
       rule.price_pence,
       rule.title,
-      rule.level,
+      rule.level ?? "",
       rule.blurb,
       place.name,
       place.address,
@@ -134,7 +141,7 @@ export function upsertRule(db: DatabaseSync, id: string, input: RuleInput, now: 
       input.capacity,
       input.pricePence,
       input.title,
-      input.level,
+      input.level ?? "",
       input.blurb,
       input.instructor,
       enabled,
@@ -182,7 +189,7 @@ export function upsertRule(db: DatabaseSync, id: string, input: RuleInput, now: 
       input.capacity,
       input.pricePence,
       input.title,
-      input.level,
+      input.level ?? "",
       input.blurb,
       input.instructor,
       enabled,

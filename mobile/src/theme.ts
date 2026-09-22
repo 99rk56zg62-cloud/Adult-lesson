@@ -25,15 +25,3 @@ export const serif = Platform.select({
   default: "serif",
 });
 
-export function levelColor(level: string): string {
-  switch (level) {
-    case "Improvers":
-      return "#1D4E89";
-    case "Confidence":
-      return "#2F6F4E";
-    case "Technique":
-      return "#A15C07";
-    default:
-      return "#0F6E6A";
-  }
-}

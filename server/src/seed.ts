@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { hashPassword } from "./auth.js";
 import {
   COURSE_DAILY_MINUTES,
+  COURSE_PACKAGE_PRICES,
   materializeCourseRun,
   materializeEnabledRules,
   upsertRule,
@@ -20,20 +21,12 @@ export const FAREHAM_LOCATION_ID = "loc_fareham_west_street";
 const HOLD_USER_ID = "user_capacity_hold";
 
 const BLURBS = {
-  beginners:
-    "For adults new to the water, or coming back after a long break. We'll work on feeling safe, breathing out, and a first stroke.",
-  improvers:
-    "You can already swim a length. This session builds a calmer front crawl and backstroke, with time to ask questions.",
-  lunchtime:
-    "A midweek session for adults who can swim a length and want a cleaner, less tiring stroke.",
-  confidence: "A gentle session on floating, breathing, and moving through the water without rushing.",
-  technique: "Drill-led workshop for adults who already swim regularly and want easier, smoother laps.",
-  crash3:
-    "Three mornings in a row to build water confidence and a first stroke. Each day is 90 minutes with the same teacher.",
-  crash4:
-    "Four consecutive mornings to tidy front crawl and backstroke. Ideal if you can already swim a short distance.",
-  crash5:
-    "Five mornings of focused technique work. For adults who swim regularly and want smoother, less tiring laps.",
+  lesson: "A private adult swimming lesson with one teacher. Bring a costume and towel.",
+  lunchtime: "A short midday lesson at the pool. One teacher, just you or you and one other swimmer.",
+  weekend: "A weekend lesson at West Street Fareham. One teacher works with one or two swimmers.",
+  crash3: "Three consecutive mornings, 90 minutes each day, with the same teacher. The price is for the whole course.",
+  crash4: "Four consecutive mornings, 90 minutes each day. The price covers the whole package.",
+  crash5: "Five consecutive mornings, 90 minutes each day. You pay once for the full course.",
 };
 
 const DEFAULT_RULES = [
@@ -43,11 +36,10 @@ const DEFAULT_RULES = [
     hour: 19,
     minute: 0,
     durationMinutes: 30,
-    capacity: 8,
+    capacity: 1,
     pricePence: 2200,
-    title: "Adult beginners",
-    level: "Beginners",
-    blurb: BLURBS.beginners,
+    title: "Adult lesson",
+    blurb: BLURBS.lesson,
     instructor: "Sam Okonkwo",
   },
   {
@@ -56,11 +48,10 @@ const DEFAULT_RULES = [
     hour: 18,
     minute: 30,
     durationMinutes: 60,
-    capacity: 8,
+    capacity: 2,
     pricePence: 3200,
-    title: "Improvers",
-    level: "Improvers",
-    blurb: BLURBS.improvers,
+    title: "Adult lesson",
+    blurb: BLURBS.lesson,
     instructor: "Priya Shah",
   },
   {
@@ -69,10 +60,9 @@ const DEFAULT_RULES = [
     hour: 12,
     minute: 15,
     durationMinutes: 30,
-    capacity: 6,
+    capacity: 1,
     pricePence: 2000,
-    title: "Lunchtime lane skills",
-    level: "Improvers",
+    title: "Lunchtime lesson",
     blurb: BLURBS.lunchtime,
     instructor: "Helen Ward",
   },
@@ -82,11 +72,10 @@ const DEFAULT_RULES = [
     hour: 19,
     minute: 0,
     durationMinutes: 60,
-    capacity: 10,
+    capacity: 2,
     pricePence: 3200,
-    title: "Adult beginners",
-    level: "Beginners",
-    blurb: BLURBS.beginners,
+    title: "Adult lesson",
+    blurb: BLURBS.lesson,
     instructor: "Sam Okonkwo",
   },
   {
@@ -95,11 +84,10 @@ const DEFAULT_RULES = [
     hour: 9,
     minute: 0,
     durationMinutes: 30,
-    capacity: 8,
+    capacity: 1,
     pricePence: 2400,
-    title: "Water confidence",
-    level: "Confidence",
-    blurb: BLURBS.confidence,
+    title: "Weekend lesson",
+    blurb: BLURBS.weekend,
     instructor: "Helen Ward",
   },
   {
@@ -108,11 +96,10 @@ const DEFAULT_RULES = [
     hour: 10,
     minute: 0,
     durationMinutes: 60,
-    capacity: 6,
+    capacity: 2,
     pricePence: 3600,
-    title: "Technique workshop",
-    level: "Technique",
-    blurb: BLURBS.technique,
+    title: "Weekend lesson",
+    blurb: BLURBS.weekend,
     instructor: "Priya Shah",
   },
 ] as const;
@@ -120,31 +107,28 @@ const DEFAULT_RULES = [
 const COURSE_PRODUCTS = [
   {
     id: "course-prod-3-beginners",
-    days: 3,
-    capacity: 6,
-    pricePence: 9900,
+    days: 3 as const,
+    capacity: 1,
+    pricePence: COURSE_PACKAGE_PRICES[3],
     title: "3-day crash course",
-    level: "Beginners",
     blurb: BLURBS.crash3,
     instructor: "Sam Okonkwo",
   },
   {
     id: "course-prod-4-improvers",
-    days: 4,
-    capacity: 6,
-    pricePence: 12900,
+    days: 4 as const,
+    capacity: 2,
+    pricePence: COURSE_PACKAGE_PRICES[4],
     title: "4-day crash course",
-    level: "Improvers",
     blurb: BLURBS.crash4,
     instructor: "Priya Shah",
   },
   {
     id: "course-prod-5-technique",
-    days: 5,
-    capacity: 5,
-    pricePence: 15900,
+    days: 5 as const,
+    capacity: 1,
+    pricePence: COURSE_PACKAGE_PRICES[5],
     title: "5-day crash course",
-    level: "Technique",
     blurb: BLURBS.crash5,
     instructor: "Helen Ward",
   },
@@ -186,8 +170,6 @@ function ensureFarehamLocation(db: DatabaseSync, now: DateTime) {
 
 function seedDefaultRules(db: DatabaseSync, now: DateTime) {
   for (const item of DEFAULT_RULES) {
-    const existing = getRow<{ id: string }>(db, `SELECT id FROM availability_rules WHERE id = ?`, item.id);
-    if (existing) continue;
     upsertRule(
       db,
       item.id,
@@ -200,7 +182,7 @@ function seedDefaultRules(db: DatabaseSync, now: DateTime) {
         capacity: item.capacity,
         pricePence: item.pricePence,
         title: item.title,
-        level: item.level,
+        level: "",
         blurb: item.blurb,
         instructor: item.instructor,
         enabled: true,
@@ -226,12 +208,17 @@ function seedCourseProducts(db: DatabaseSync, now: DateTime) {
       product.capacity,
       product.pricePence,
       product.title,
-      product.level,
+      "",
       product.blurb,
       product.instructor,
       stamp,
       stamp,
     );
+    db.prepare(
+      `UPDATE course_products SET
+        capacity = ?, price_pence = ?, title = ?, level = '', blurb = ?, instructor = ?, updated_at = ?
+       WHERE id = ?`,
+    ).run(product.capacity, product.pricePence, product.title, product.blurb, product.instructor, stamp, product.id);
   }
 }
 
@@ -271,17 +258,23 @@ function seedCourseRuns(db: DatabaseSync, now: DateTime) {
   ] as const;
 
   for (const run of runs) {
-    const existing = getRow<{ id: string }>(db, `SELECT id FROM course_runs WHERE id = ?`, run.id);
-    if (existing) continue;
     const product = getRow<{
       title: string;
-      level: string;
       blurb: string;
       instructor: string;
       capacity: number;
       price_pence: number;
-    }>(db, `SELECT title, level, blurb, instructor, capacity, price_pence FROM course_products WHERE id = ?`, run.productId);
+    }>(db, `SELECT title, blurb, instructor, capacity, price_pence FROM course_products WHERE id = ?`, run.productId);
     if (!product) continue;
+    const existing = getRow<{ id: string }>(db, `SELECT id FROM course_runs WHERE id = ?`, run.id);
+    if (existing) {
+      db.prepare(
+        `UPDATE course_runs SET
+          capacity = ?, price_pence = ?, title = ?, level = '', blurb = ?, instructor = ?
+         WHERE id = ?`,
+      ).run(product.capacity, product.price_pence, product.title, product.blurb, product.instructor, run.id);
+      continue;
+    }
     const firstDate = now.setZone(ZONE).plus({ days: run.offsetDays }).startOf("day");
     db.prepare(
       `INSERT INTO course_runs (
@@ -300,7 +293,7 @@ function seedCourseRuns(db: DatabaseSync, now: DateTime) {
       product.capacity,
       product.price_pence,
       product.title,
-      product.level,
+      "",
       product.blurb,
       product.instructor,
       place.name,
@@ -317,7 +310,10 @@ function ensureSoonSlot(db: DatabaseSync, now: DateTime, nowIso: string) {
     `SELECT id FROM slots WHERE rule_id = 'soon-dropin' AND starts_at > ?`,
     nowIso,
   );
-  if (existing) return;
+  if (existing) {
+    db.prepare(`UPDATE slots SET capacity = 1, level = '', title = 'Adult lesson' WHERE id = ?`).run(existing.id);
+    return;
+  }
   const place = getRow<{ name: string; address: string }>(
     db,
     `SELECT name, address FROM locations WHERE id = ?`,
@@ -333,10 +329,10 @@ function ensureSoonSlot(db: DatabaseSync, now: DateTime, nowIso: string) {
     toUtcIso(starts),
     toUtcIso(starts.plus({ minutes: 30 })),
     30,
-    8,
+    1,
     2200,
-    "Adult beginners",
-    "Beginners",
+    "Adult lesson",
+    "",
     template.blurb,
     place.name,
     place.address,
@@ -350,7 +346,10 @@ function ensureFullSlot(db: DatabaseSync, now: DateTime, nowIso: string, rounds:
     `SELECT id FROM slots WHERE rule_id = 'showcase-full' AND starts_at > ?`,
     nowIso,
   );
-  if (existing) return;
+  if (existing) {
+    db.prepare(`UPDATE slots SET capacity = 1, level = '', title = 'Stroke workshop' WHERE id = ?`).run(existing.id);
+    return;
+  }
   const place = getRow<{ name: string; address: string }>(
     db,
     `SELECT name, address FROM locations WHERE id = ?`,
@@ -369,8 +368,8 @@ function ensureFullSlot(db: DatabaseSync, now: DateTime, nowIso: string, rounds:
     1,
     3200,
     "Stroke workshop",
-    "Technique",
-    BLURBS.technique,
+    "",
+    BLURBS.lesson,
     place.name,
     place.address,
     "Priya Shah",
@@ -410,8 +409,8 @@ function ensureDemoBooking(db: DatabaseSync, now: DateTime, nowIso: string, roun
     db,
     `SELECT s.id, s.price_pence FROM slots s
      WHERE s.rule_id LIKE 'weekly-%'
-       AND s.level = 'Beginners'
-       AND s.duration_minutes = 30
+       AND s.capacity = 2
+       AND s.duration_minutes = 60
        AND s.enabled = 1
        AND s.cancelled = 0
        AND s.starts_at > ?
@@ -420,7 +419,7 @@ function ensureDemoBooking(db: DatabaseSync, now: DateTime, nowIso: string, roun
          SELECT COUNT(*) FROM bookings b
          WHERE b.slot_id = s.id
            AND (b.status = 'confirmed' OR (b.status = 'pending_payment' AND b.hold_expires_at > ?))
-       ) < s.capacity - 1
+       ) < s.capacity
      ORDER BY s.starts_at
      LIMIT 1`,
     earliest,

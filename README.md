@@ -1,15 +1,15 @@
 # Lido
 
-Adult swimming lesson bookings for iOS, Android, and web. Customers pick a location (when more than one exists), choose 30 or 60 minute single lessons on a calendar, or book a 3/4/5-day morning crash course. Pay when they book, rearrange until 24 hours before the start (or before day one of a course), and add bookings to Google Calendar.
+Adult swimming lesson bookings for iOS, Android, and web. Customers pick a location (when more than one exists), choose a private **1-to-1** or **1-to-2** session, then a 30 or 60 minute lesson on a calendar, or book a 3/4/5-day morning crash course. Lessons are not organised by skill level. Pay when they book, rearrange until 24 hours before the start (or before day one of a course), and add bookings to Google Calendar.
 
 The mobile client is Expo (React Native). The API is a small Node server with SQLite. Business rules are enforced on the server. Pool staff manage locations, weekly availability, one-off sessions, and crash courses in a simple admin web page.
 
 ## How booking works now
 
-1. Open **Schedule**. If several pools are open, pick a **location**. Choose **30 min** or **60 min** for single lessons.
+1. Open **Schedule**. If several pools are open, pick a **location**. Choose **1-to-1** or **1-to-2** (one teacher with one or two swimmers), then **30 min** or **60 min**.
 2. Tap a highlighted date in the next **6 weeks** (UK / Europe/London) to see open times for that length.
 3. Tap a time, confirm, and pay (Stripe Checkout, or the local test-payment page when no Stripe key is set).
-4. Scroll to **Crash courses** to book a whole 3-, 4-, or 5-day run. Each day is **90 minutes**, with daily starts between **06:00 and 09:00** UK time. The app shows every day and time in the package.
+4. Scroll to **Crash courses** to book a whole 3-, 4-, or 5-day run of the same session type. Each day is **90 minutes**, with daily starts between **06:00 and 09:00** UK time. The price is the package total: **£349** (3 days), **£449** (4 days), or **£549** (5 days). The app shows every day and time in the package.
 5. Bookings appear under **Lessons**. Single lessons can be rearranged until **24 hours** before they start. Crash courses can be moved to another open run of the **same length** until **24 hours before day one**; after that the package is locked.
 6. Use **Add to Google Calendar** on a booking, or connect Google on Account so paid and rearranged bookings sync automatically.
 
@@ -80,9 +80,9 @@ Outside production, if `ADMIN_TOKEN` is left blank the API uses `lido-dev-admin`
 What you can do there:
 
 1. **Locations** — add or edit pools (name, address). Hide a location to stop new availability there.
-2. **Weekly availability** — recurring **30 or 60 minute** classes tied to a location (day, start time, places, price, lesson type, teacher). Turn a class off to hide future dates without deleting paid bookings.
+2. **Weekly availability** — recurring **30 or 60 minute** private sessions tied to a location (day, start time, **1-to-1 or 1-to-2**, price, teacher). Turn a session off to hide future dates without deleting paid bookings.
 3. **Upcoming sessions** — materialised calendar dates, add a one-off session, or cancel a single date.
-4. **Crash courses** — course products (3/4/5 days, 90 min/day, morning window) and scheduled runs with a first date and daily start time.
+4. **Crash courses** — course products (3/4/5 days, 90 min/day, morning window, 1-to-1 or 1-to-2, package price) and scheduled runs with a first date and daily start time. Defaults are £349, £449, and £549.
 
 The customer app only shows enabled, non-cancelled sessions and course runs with open capacity as bookable. The JSON admin API (`x-admin-token` header) mirrors this: `/api/admin/locations`, `/api/admin/rules`, `/api/admin/slots`, `/api/admin/course-products`, `/api/admin/course-runs`.
 
@@ -163,18 +163,18 @@ The refresh token is stored in SQLite for local development. Encrypt it before a
 
 ## Default Fareham demo data
 
-On startup the API seeds **West Street Fareham** (`153 West Street, Fareham PO16 0EL`) unless it already exists, then fills eight weeks of materialised slots (customers can book six):
+On startup the API seeds **West Street Fareham** (`153 West Street, Fareham PO16 0EL`) unless it already exists, then fills eight weeks of materialised slots (customers can book six). Sessions are private — capacity is 1 or 2, not a class size:
 
-| When | Session | Length | Places | Price |
+| When | Session | Length | Type | Price |
 | --- | --- | --- | --- | --- |
-| Monday 7:00pm | Adult beginners | 30 min | 8 | £22 |
-| Tuesday 6:30pm | Improvers | 60 min | 8 | £32 |
-| Wednesday 12:15pm | Lunchtime lane skills | 30 min | 6 | £20 |
-| Thursday 7:00pm | Adult beginners | 60 min | 10 | £32 |
-| Saturday 9:00am | Water confidence | 30 min | 8 | £24 |
-| Sunday 10:00am | Technique workshop | 60 min | 6 | £36 |
+| Monday 7:00pm | Adult lesson | 30 min | 1-to-1 | £22 |
+| Tuesday 6:30pm | Adult lesson | 60 min | 1-to-2 | £32 |
+| Wednesday 12:15pm | Lunchtime lesson | 30 min | 1-to-1 | £20 |
+| Thursday 7:00pm | Adult lesson | 60 min | 1-to-2 | £32 |
+| Saturday 9:00am | Weekend lesson | 30 min | 1-to-1 | £24 |
+| Sunday 10:00am | Weekend lesson | 60 min | 1-to-2 | £36 |
 
-It also schedules **3-, 4-, and 5-day crash course runs** in the 6–9am window within the next six weeks, adds a drop-in about 12 hours ahead (to demo the 24-hour lock), and a one-place session that is already full.
+It also schedules **3-, 4-, and 5-day crash course runs** in the 6–9am window within the next six weeks. Each day is 90 minutes. The charge is the package total: **£349** (3-day, 1-to-1), **£449** (4-day, 1-to-2), and **£549** (5-day, 1-to-1). A drop-in about 12 hours ahead shows the 24-hour lock, and a 1-to-1 session is already booked.
 
 Edit or extend this from `/admin` — you do not need to touch the seed file for day-to-day changes.
 
@@ -185,7 +185,7 @@ npm test
 npm run typecheck
 ```
 
-The API tests cover the 6-week boundary in Europe/London, the 24-hour rearrange cutoff (including daylight saving), 30/60 minute filtering, location listing, crash course booking and same-length reschedule, capacity holds, payment required before confirm, Stripe webhook confirmation, Google Calendar connect/sync, and admin weekly rules feeding the customer calendar. They use an in-memory database and do not call Stripe or Google.
+The API tests cover the 6-week boundary in Europe/London, the 24-hour rearrange cutoff (including daylight saving), 30/60 minute filtering, 1-to-1 and 1-to-2 filtering, location listing, crash course booking at the package prices and same-length reschedule, capacity holds, payment required before confirm, Stripe webhook confirmation, Google Calendar connect/sync, and admin weekly rules feeding the customer calendar. They use an in-memory database and do not call Stripe or Google.
 
 ## Production notes
 

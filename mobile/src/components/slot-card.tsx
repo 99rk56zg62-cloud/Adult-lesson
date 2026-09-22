@@ -1,16 +1,16 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { Slot } from "@/types";
 
 export function SlotCard({ slot, onPress, selected = false }: { slot: Slot; onPress: () => void; selected?: boolean }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${slot.dayLabel} ${slot.timeLabel}, ${slot.title}, ${slot.priceLabel}, ${slot.spotsLabel}`}
+      accessibilityLabel={`${slot.dayLabel} ${slot.timeLabel}, ${slot.title}, ${slot.priceLabel}, ${slot.partyLabel}`}
       onPress={onPress}
       style={({ pressed }) => [styles.card, selected && styles.selected, pressed && styles.pressed, !slot.bookable && styles.full]}
     >
-      <View style={[styles.bar, { backgroundColor: levelColor(slot.level) }]} />
+      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
       <View style={styles.body}>
         <Text style={styles.time}>{slot.timeLabel}</Text>
         <Text style={styles.title}>{slot.title}</Text>
@@ -20,7 +20,7 @@ export function SlotCard({ slot, onPress, selected = false }: { slot: Slot; onPr
       </View>
       <View style={styles.side}>
         <Text style={styles.price}>{slot.priceLabel}</Text>
-        <Text style={[styles.spots, slot.spotsLeft === 1 && styles.scarce, slot.spotsLeft === 0 && styles.gone]}>{slot.spotsLabel}</Text>
+        <Text style={[styles.spots, slot.spotsLeft === 0 && styles.gone]}>{slot.bookable ? slot.partyLabel : "Booked"}</Text>
       </View>
     </Pressable>
   );

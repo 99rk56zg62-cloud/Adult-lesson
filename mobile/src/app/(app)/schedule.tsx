@@ -5,7 +5,7 @@ import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
 import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, TopBar } from "@/components/ui";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { CourseRun, DayAvailability, Location, Slot } from "@/types";
 
 export default function ScheduleScreen() {
@@ -13,6 +13,7 @@ export default function ScheduleScreen() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState<string | null>(null);
   const [durationMinutes, setDurationMinutes] = useState<number>(30);
+  const [partySize, setPartySize] = useState<number>(1);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [courses, setCourses] = useState<CourseRun[]>([]);
   const [days, setDays] = useState<DayAvailability[]>([]);
@@ -28,8 +29,8 @@ export default function ScheduleScreen() {
     try {
       const [locationResult, schedule, courseResult] = await Promise.all([
         api.locations(),
-        api.slots({ locationId: locationId ?? undefined, durationMinutes }),
-        api.courses({ locationId: locationId ?? undefined }),
+        api.slots({ locationId: locationId ?? undefined, durationMinutes, partySize }),
+        api.courses({ locationId: locationId ?? undefined, partySize }),
       ]);
       setLocations(locationResult.locations);
       setLocationId((current) => {
@@ -53,7 +54,7 @@ export default function ScheduleScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [durationMinutes, locationId]);
+  }, [durationMinutes, locationId, partySize]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,6 +111,15 @@ export default function ScheduleScreen() {
         ) : null}
 
         <View style={styles.filterBlock}>
+          <Text style={styles.filterLabel}>Session</Text>
+          <View style={styles.chips}>
+            <Chip label="1-to-1" selected={partySize === 1} onPress={() => setPartySize(1)} />
+            <Chip label="1-to-2" selected={partySize === 2} onPress={() => setPartySize(2)} />
+          </View>
+          <Text style={styles.daySub}>One teacher with {partySize === 1 ? "one swimmer" : "two swimmers"}.</Text>
+        </View>
+
+        <View style={styles.filterBlock}>
           <Text style={styles.filterLabel}>Lesson length</Text>
           <View style={styles.chips}>
             {lessonDurations.map((minutes) => (
@@ -139,7 +149,7 @@ export default function ScheduleScreen() {
             <Text style={styles.dayTitle}>{selectedDay.dayLabel}</Text>
             <Text style={styles.daySub}>
               {selectedDay.openCount === 0
-                ? "No open places on this day."
+                ? "No open times on this day."
                 : selectedDay.openCount === 1
                   ? "1 time available"
                   : `${selectedDay.openCount} times available`}
@@ -193,7 +203,7 @@ function TimeRow({ slot, onPress }: { slot: Slot; onPress: () => void }) {
       onPress={onPress}
       style={[styles.timeRow, !slot.bookable && styles.timeDisabled]}
     >
-      <View style={[styles.bar, { backgroundColor: levelColor(slot.level) }]} />
+      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
       <View style={styles.timeBody}>
         <Text style={styles.time}>{slot.startTimeLabel}</Text>
         <Text style={styles.title}>{slot.title}</Text>
@@ -203,7 +213,9 @@ function TimeRow({ slot, onPress }: { slot: Slot; onPress: () => void }) {
       </View>
       <View style={styles.side}>
         <Text style={styles.price}>{slot.priceLabel}</Text>
-        <Text style={[styles.spots, !slot.bookable && styles.gone]}>{slot.bookable ? slot.spotsLabel : slot.unavailableReason ?? "Unavailable"}</Text>
+        <Text style={[styles.spots, !slot.bookable && styles.gone]}>
+          {slot.bookable ? slot.partyLabel : slot.spotsLeft === 0 ? "Booked" : slot.unavailableReason ?? "Unavailable"}
+        </Text>
       </View>
     </Pressable>
   );
@@ -217,7 +229,7 @@ function CourseRow({ course, onPress }: { course: CourseRun; onPress: () => void
       onPress={onPress}
       style={[styles.timeRow, !course.bookable && styles.timeDisabled]}
     >
-      <View style={[styles.bar, { backgroundColor: levelColor(course.level) }]} />
+      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
       <View style={styles.timeBody}>
         <Text style={styles.time}>{course.days}-day course</Text>
         <Text style={styles.title}>{course.title}</Text>
@@ -228,7 +240,7 @@ function CourseRow({ course, onPress }: { course: CourseRun; onPress: () => void
       <View style={styles.side}>
         <Text style={styles.price}>{course.priceLabel}</Text>
         <Text style={[styles.spots, !course.bookable && styles.gone]}>
-          {course.bookable ? course.spotsLabel : course.unavailableReason ?? "Unavailable"}
+          {course.bookable ? course.partyLabel : course.spotsLeft === 0 ? "Booked" : course.unavailableReason ?? "Unavailable"}
         </Text>
       </View>
     </Pressable>

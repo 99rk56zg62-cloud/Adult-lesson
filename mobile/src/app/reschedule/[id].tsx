@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { api, messageOf } from "@/api";
 import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { Booking, CourseRun, DayAvailability, Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -33,13 +33,17 @@ export default function RescheduleScreen() {
         if (cancelled) return;
         setBooking(nextBooking.booking);
         if (nextBooking.booking.kind === "course") {
-          const courseList = await api.courses({ days: nextBooking.booking.course?.days });
+          const courseList = await api.courses({
+            days: nextBooking.booking.course?.days,
+            partySize: nextBooking.booking.course?.capacity === 2 ? 2 : 1,
+          });
           if (cancelled) return;
           setCourses(courseList.courses.filter((course) => course.id !== nextBooking.booking.course?.id));
         } else {
           const schedule = await api.slots({
             locationId: nextBooking.booking.slot?.locationId,
             durationMinutes: nextBooking.booking.slot?.durationMinutes,
+            partySize: nextBooking.booking.slot?.capacity === 2 ? 2 : 1,
           });
           if (cancelled) return;
           setSlots(schedule.slots);
@@ -105,12 +109,12 @@ export default function RescheduleScreen() {
                 onPress={() => setSelected(course.id)}
                 style={[styles.timeRow, selected === course.id && styles.selected]}
               >
-                <View style={[styles.bar, { backgroundColor: levelColor(course.level) }]} />
+                <View style={[styles.bar, { backgroundColor: colors.pool }]} />
                 <View style={styles.body}>
                   <Text style={styles.time}>{course.dateSummary}</Text>
                   <Text style={styles.title}>{course.title}</Text>
                   <Text style={styles.meta}>
-                    {course.dailyTimeLabel} daily · {course.spotsLabel}
+                    {course.dailyTimeLabel} daily · {course.partyLabel}
                   </Text>
                 </View>
                 <Text style={styles.price}>{course.priceLabel}</Text>
@@ -143,12 +147,12 @@ export default function RescheduleScreen() {
                 onPress={() => setSelected(slot.id)}
                 style={[styles.timeRow, selected === slot.id && styles.selected]}
               >
-                <View style={[styles.bar, { backgroundColor: levelColor(slot.level) }]} />
+                <View style={[styles.bar, { backgroundColor: colors.pool }]} />
                 <View style={styles.body}>
                   <Text style={styles.time}>{slot.startTimeLabel}</Text>
                   <Text style={styles.title}>{slot.title}</Text>
                   <Text style={styles.meta}>
-                    {slot.location} · {slot.spotsLabel}
+                    {slot.location} · {slot.partyLabel}
                   </Text>
                 </View>
                 <Text style={styles.price}>{slot.priceLabel}</Text>

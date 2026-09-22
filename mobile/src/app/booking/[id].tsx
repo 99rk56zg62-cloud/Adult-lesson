@@ -87,8 +87,8 @@ export default function BookingScreen() {
     ? `${booking?.course?.location}, ${booking?.course?.address}`
     : `${booking?.slot?.location}, ${booking?.slot?.address}`;
   const meta = isCourse
-    ? `${booking?.course?.level} · ${booking?.course?.instructor} · Paid ${booking?.priceLabel}`
-    : `${booking?.slot?.level} · ${booking?.slot?.instructor} · Paid ${booking?.priceLabel}`;
+    ? `${booking?.course?.partyLabel} · ${booking?.course?.instructor} · Paid ${booking?.priceLabel}`
+    : `${booking?.slot?.partyLabel} · ${booking?.slot?.instructor} · Paid ${booking?.priceLabel}`;
 
   return (
     <Phone>

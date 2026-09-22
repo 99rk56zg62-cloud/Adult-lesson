@@ -42,7 +42,7 @@ export type Slot = {
   id: string;
   locationId: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   location: string;
   address: string;
@@ -83,7 +83,7 @@ export type CourseRun = {
   productId: string;
   locationId: string;
   title: string;
-  level: string;
+  partyLabel: string;
   blurb: string;
   instructor: string;
   location: string;

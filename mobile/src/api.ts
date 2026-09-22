@@ -78,7 +78,7 @@ export const api = {
     request<{ token: string; user: User }>("/api/auth/login", { method: "POST", body, auth: false }),
   me: () => request<{ user: User }>("/api/me"),
   locations: () => request<{ locations: Location[] }>("/api/locations"),
-  slots: (filters?: { locationId?: string; durationMinutes?: number }) =>
+  slots: (filters?: { locationId?: string; durationMinutes?: number; partySize?: number }) =>
     request<{
       slots: Slot[];
       days: import("@/types").DayAvailability[];
@@ -86,7 +86,7 @@ export const api = {
       maxAdvanceWeeks: number;
       rescheduleCutoffHours: number;
     }>(`/api/slots${query(filters ?? {})}`),
-  courses: (filters?: { locationId?: string; days?: number }) =>
+  courses: (filters?: { locationId?: string; days?: number; partySize?: number }) =>
     request<{ courses: CourseRun[]; maxAdvanceWeeks: number }>(`/api/courses${query(filters ?? {})}`),
   slot: (id: string) => request<{ slot: Slot }>(`/api/slots/${id}`),
   course: (id: string) => request<{ course: CourseRun }>(`/api/courses/${id}`),

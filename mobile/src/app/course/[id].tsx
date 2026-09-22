@@ -6,7 +6,7 @@ import { useAuth } from "@/auth";
 import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { CourseRun } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -73,8 +73,8 @@ export default function CourseScreen() {
       ) : null}
       {course ? (
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.level, { backgroundColor: levelColor(course.level) }]}>
-            <Text style={styles.levelText}>{course.level}</Text>
+          <View style={[styles.level, { backgroundColor: colors.pool }]}>
+            <Text style={styles.levelText}>{course.partyLabel}</Text>
           </View>
           <Text style={styles.place}>{course.location}</Text>
           <Text style={styles.address}>{course.address}</Text>
@@ -83,8 +83,8 @@ export default function CourseScreen() {
             <Fact label="Dates" value={course.dateSummary} />
             <Fact label="Daily time" value={`${course.dailyTimeLabel} · ${course.dailyMinutes} minutes`} />
             <Fact label="Teacher" value={course.instructor} />
-            <Fact label="Places" value={course.spotsLabel} />
-            <Fact label="Price" value={course.priceLabel} />
+            <Fact label="Session" value={course.partyLabel} />
+            <Fact label="Course price" value={course.priceLabel} />
           </View>
           <View style={styles.schedule}>
             <Text style={styles.scheduleTitle}>Your schedule</Text>

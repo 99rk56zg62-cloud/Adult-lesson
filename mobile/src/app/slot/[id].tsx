@@ -6,7 +6,7 @@ import { useAuth } from "@/auth";
 import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
-import { colors, levelColor, serif } from "@/theme";
+import { colors, serif } from "@/theme";
 import type { Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -73,8 +73,8 @@ export default function SlotScreen() {
       ) : null}
       {slot ? (
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.level, { backgroundColor: levelColor(slot.level) }]}>
-            <Text style={styles.levelText}>{slot.level}</Text>
+          <View style={[styles.level, { backgroundColor: colors.pool }]}>
+            <Text style={styles.levelText}>{slot.partyLabel}</Text>
           </View>
           <Text style={styles.place}>{slot.location}</Text>
           <Text style={styles.address}>{slot.address}</Text>
@@ -83,7 +83,7 @@ export default function SlotScreen() {
             <Fact label="When" value={`${slot.dayLabel}, ${slot.timeLabel}`} />
             <Fact label="Length" value={`${slot.durationMinutes} minutes`} />
             <Fact label="Teacher" value={slot.instructor} />
-            <Fact label="Spaces" value={slot.spotsLabel} />
+            <Fact label="Session" value={slot.partyLabel} />
             <Fact label="Price" value={slot.priceLabel} />
           </View>
           <Text style={styles.note}>Bring a costume and towel. Goggles help. Hats are available at the pool. 25 metre pool, with changing rooms on site.</Text>

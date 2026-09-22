@@ -15,10 +15,10 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
     starts_at: starts.toUTC().toISO()!,
     ends_at: ends.toUTC().toISO()!,
     duration_minutes: 30,
-    capacity: 8,
+    capacity: 2,
     price_pence: 2200,
-    title: "Adult beginners",
-    level: "Beginners",
+    title: "Adult lesson",
+    level: "",
     blurb: "A first stroke.",
     location: "West Street Fareham",
     address: "153 West Street, Fareham PO16 0EL",
@@ -34,8 +34,10 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
   assert.equal(slot.dateKey, "2026-09-23");
   assert.equal(slot.weekKey, "2026-09-21");
   assert.equal(slot.weekLabel, "21–27 Sep");
-  assert.equal(slot.spotsLeft, 7);
-  assert.equal(slot.spotsLabel, "7 spots left");
+  assert.equal(slot.spotsLeft, 1);
+  assert.equal(slot.partyLabel, "1-to-2");
+  assert.equal(slot.spotsLabel, "1-to-2");
+  assert.equal("level" in slot, false);
   assert.match(slot.priceLabel, /22\.00/);
 
   const link = googleCalendarTemplateUrl({
@@ -45,9 +47,9 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
     location: row.location,
     address: row.address,
     reference: "LD-TEST01",
-    level: row.level,
   });
   assert.match(link, /calendar\.google\.com/);
+  assert.doesNotMatch(link, /Beginners|level/i);
   assert.match(link, /20260923T180000Z/);
   assert.match(link, /20260923T183000Z/);
   assert.match(link, /LD-TEST01/);
