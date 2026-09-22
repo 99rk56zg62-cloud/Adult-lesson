@@ -32,6 +32,10 @@ export default function ScheduleScreen() {
         api.courses({ locationId: locationId ?? undefined }),
       ]);
       setLocations(locationResult.locations);
+      setLocationId((current) => {
+        if (current && locationResult.locations.some((location) => location.id === current)) return current;
+        return locationResult.locations.length > 1 ? locationResult.locations[0]!.id : null;
+      });
       setSlots(schedule.slots);
       setCourses(courseResult.courses);
       setDays(schedule.days);
