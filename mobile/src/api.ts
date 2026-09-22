@@ -1,4 +1,4 @@
-import type { Booking, CalendarStatus, CheckoutResponse, PublicConfig, Slot, User } from "@/types";
+import type { Booking, CalendarStatus, CheckoutResponse, CourseRun, Location, PublicConfig, Slot, User } from "@/types";
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/+$/, "");
 
@@ -63,6 +63,13 @@ async function request<T>(path: string, options?: { method?: string; body?: unkn
   return payload as T;
 }
 
+function query(params: Record<string, string | number | undefined>): string {
+  const parts = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== "")
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
 export const api = {
   config: () => request<PublicConfig>("/api/config", { auth: false }),
   register: (body: { name: string; email: string; password: string }) =>
@@ -70,19 +77,23 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request<{ token: string; user: User }>("/api/auth/login", { method: "POST", body, auth: false }),
   me: () => request<{ user: User }>("/api/me"),
-  slots: () =>
+  locations: () => request<{ locations: Location[] }>("/api/locations"),
+  slots: (filters?: { locationId?: string; durationMinutes?: number }) =>
     request<{
       slots: Slot[];
       days: import("@/types").DayAvailability[];
       windowEndsLabel: string;
       maxAdvanceWeeks: number;
       rescheduleCutoffHours: number;
-    }>("/api/slots"),
+    }>(`/api/slots${query(filters ?? {})}`),
+  courses: (filters?: { locationId?: string; days?: number }) =>
+    request<{ courses: CourseRun[]; maxAdvanceWeeks: number }>(`/api/courses${query(filters ?? {})}`),
   slot: (id: string) => request<{ slot: Slot }>(`/api/slots/${id}`),
+  course: (id: string) => request<{ course: CourseRun }>(`/api/courses/${id}`),
   bookings: () => request<{ bookings: Booking[] }>("/api/bookings"),
   booking: (id: string) => request<{ booking: Booking }>(`/api/bookings/${id}`),
-  createBooking: (slotId: string, returnUrl: string) =>
-    request<CheckoutResponse>("/api/bookings", { method: "POST", body: { slotId, returnUrl } }),
+  createBooking: (input: { slotId?: string; courseRunId?: string; returnUrl: string }) =>
+    request<CheckoutResponse>("/api/bookings", { method: "POST", body: input }),
   refreshCheckout: (id: string, returnUrl: string) =>
     request<CheckoutResponse>(`/api/bookings/${id}/checkout`, { method: "POST", body: { returnUrl } }),
   confirm: (sessionId: string) =>
@@ -90,10 +101,10 @@ export const api = {
       method: "POST",
       body: { sessionId },
     }),
-  reschedule: (id: string, slotId: string) =>
+  reschedule: (id: string, input: { slotId?: string; courseRunId?: string }) =>
     request<{ booking: Booking; calendarSyncError: string | null }>(`/api/bookings/${id}/reschedule`, {
       method: "POST",
-      body: { slotId },
+      body: input,
     }),
   syncCalendar: (id: string) => request<{ booking: Booking }>(`/api/bookings/${id}/calendar-sync`, { method: "POST" }),
   calendarStatus: () => request<CalendarStatus>("/api/calendar/status"),

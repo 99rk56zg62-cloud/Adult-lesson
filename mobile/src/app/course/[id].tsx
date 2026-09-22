@@ -7,16 +7,16 @@ import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
 import { colors, levelColor, serif } from "@/theme";
-import type { Slot } from "@/types";
+import type { CourseRun } from "@/types";
 
 function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
-export default function SlotScreen() {
+export default function CourseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { config } = useAuth();
-  const [slot, setSlot] = useState<Slot | null>(null);
+  const [course, setCourse] = useState<CourseRun | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,8 +25,8 @@ export default function SlotScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const result = await api.slot(one(id));
-        if (!cancelled) setSlot(result.slot);
+        const result = await api.course(one(id));
+        if (!cancelled) setCourse(result.course);
       } catch (caught) {
         if (!cancelled) setError(messageOf(caught));
       }
@@ -37,12 +37,12 @@ export default function SlotScreen() {
   }, [id]);
 
   async function book() {
-    if (!slot) return;
+    if (!course) return;
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
-      const checkout = await api.createBooking({ slotId: slot.id, returnUrl: paymentReturnUrl() });
+      const checkout = await api.createBooking({ courseRunId: course.id, returnUrl: paymentReturnUrl() });
       const result = await runCheckout({
         checkoutUrl: checkout.checkoutUrl,
         sessionId: checkout.sessionId,
@@ -54,7 +54,7 @@ export default function SlotScreen() {
         router.replace(`/booking/${result.booking.id}`);
         return;
       }
-      setInfo("Payment wasn't completed. The space stays held for a short time — you can finish it from My lessons.");
+      setInfo("Payment wasn't completed. The place stays held for a short time — finish from My lessons.");
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
@@ -64,43 +64,53 @@ export default function SlotScreen() {
 
   return (
     <Phone>
-      <TopBar tone="dark" title={slot?.title ?? "Lesson"} subtitle={slot ? `${slot.dayLabel} · ${slot.timeLabel}` : " "} back />
-      {!slot && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
+      <TopBar tone="dark" title={course?.title ?? "Crash course"} subtitle={course?.dateSummary ?? " "} back />
+      {!course && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
       {error ? (
         <View style={styles.pad}>
           <Banner tone="danger" text={error} />
         </View>
       ) : null}
-      {slot ? (
+      {course ? (
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.level, { backgroundColor: levelColor(slot.level) }]}>
-            <Text style={styles.levelText}>{slot.level}</Text>
+          <View style={[styles.level, { backgroundColor: levelColor(course.level) }]}>
+            <Text style={styles.levelText}>{course.level}</Text>
           </View>
-          <Text style={styles.place}>{slot.location}</Text>
-          <Text style={styles.address}>{slot.address}</Text>
-          <Text style={styles.blurb}>{slot.blurb}</Text>
+          <Text style={styles.place}>{course.location}</Text>
+          <Text style={styles.address}>{course.address}</Text>
+          <Text style={styles.blurb}>{course.blurb}</Text>
           <View style={styles.facts}>
-            <Fact label="When" value={`${slot.dayLabel}, ${slot.timeLabel}`} />
-            <Fact label="Length" value={`${slot.durationMinutes} minutes`} />
-            <Fact label="Teacher" value={slot.instructor} />
-            <Fact label="Spaces" value={slot.spotsLabel} />
-            <Fact label="Price" value={slot.priceLabel} />
+            <Fact label="Dates" value={course.dateSummary} />
+            <Fact label="Daily time" value={`${course.dailyTimeLabel} · ${course.dailyMinutes} minutes`} />
+            <Fact label="Teacher" value={course.instructor} />
+            <Fact label="Places" value={course.spotsLabel} />
+            <Fact label="Price" value={course.priceLabel} />
           </View>
-          <Text style={styles.note}>Bring a costume and towel. Goggles help. Hats are available at the pool. 25 metre pool, with changing rooms on site.</Text>
-          {slot.soon && slot.bookable ? (
-            <Banner tone="warn" text="This session starts soon. After you book, it can't be rearranged — changes close 24 hours before the start." />
+          <View style={styles.schedule}>
+            <Text style={styles.scheduleTitle}>Your schedule</Text>
+            {course.sessions.map((session) => (
+              <Text key={session.dayIndex} style={styles.sessionLine}>
+                Day {session.dayIndex}: {session.dayLabel}, {session.timeLabel}
+              </Text>
+            ))}
+          </View>
+          <Text style={styles.note}>
+            Booking reserves the whole {course.days}-day run. You can move to another open {course.days}-day run until 24 hours before day one.
+          </Text>
+          {course.soon && course.bookable ? (
+            <Banner tone="warn" text="This course starts soon. After you book, it can't be moved — changes close 24 hours before day one." />
           ) : null}
-          {slot.unavailableReason ? <Banner tone="warn" text={slot.unavailableReason} /> : null}
+          {course.unavailableReason ? <Banner tone="warn" text={course.unavailableReason} /> : null}
           {info ? <Banner tone="warn" text={info} /> : null}
           <Button
-            label={busy ? "Opening payment…" : slot.bookable ? `Book · ${slot.priceLabel}` : "Can't book this session"}
-            disabled={!slot.bookable || busy}
+            label={busy ? "Opening payment…" : course.bookable ? `Book course · ${course.priceLabel}` : "Can't book this course"}
+            disabled={!course.bookable || busy}
             onPress={book}
           />
           <Text style={styles.payNote}>
             {config?.paymentsMode === "stripe"
-              ? "You'll pay on Stripe's secure page. The lesson appears in My lessons after the payment succeeds."
-              : "This server is using a local test payment, so you won't be charged. Set a Stripe test key for Checkout."}
+              ? "You'll pay on Stripe's secure page. The course appears in My lessons after payment succeeds."
+              : "This server is using a local test payment, so you won't be charged."}
           </Text>
         </ScrollView>
       ) : null}
@@ -129,6 +139,9 @@ const styles = StyleSheet.create({
   fact: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   factLabel: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   factValue: { color: colors.ink, fontSize: 16, marginTop: 2 },
+  schedule: { gap: 6 },
+  scheduleTitle: { fontFamily: serif, fontSize: 22, fontWeight: "700", color: colors.ink },
+  sessionLine: { color: colors.ink, lineHeight: 20 },
   note: { color: colors.muted, lineHeight: 20 },
   payNote: { color: colors.muted, fontSize: 13, lineHeight: 18 },
 });

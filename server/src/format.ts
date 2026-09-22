@@ -1,8 +1,23 @@
 import { DateTime } from "luxon";
-import { WEEKDAY_LABELS, clockMinutesLabel } from "./availability.js";
+import { COURSE_DAILY_MINUTES, WEEKDAY_LABELS, clockMinutesLabel } from "./availability.js";
 import { getBookingBlock, getRescheduleBlock, spotsRemaining, RESCHEDULE_CUTOFF_MS } from "./rules.js";
 import { fromIso, ZONE } from "./time.js";
-import type { AvailabilityRuleDto, AvailabilityRuleRow, BookingDto, BookingRow, SlotDto, SlotRow } from "./types.js";
+import type {
+  AvailabilityRuleDto,
+  AvailabilityRuleRow,
+  BookingDto,
+  BookingRow,
+  CourseProductDto,
+  CourseProductRow,
+  CourseRunDto,
+  CourseRunRow,
+  CourseSessionDto,
+  CourseSessionRow,
+  LocationDto,
+  LocationRow,
+  SlotDto,
+  SlotRow,
+} from "./types.js";
 
 export function formatGBP(pence: number): string {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
@@ -38,16 +53,27 @@ export function googleCalendarTemplateUrl(input: {
   address: string;
   reference: string;
   level: string;
+  kind?: "lesson" | "course";
 }): string {
   const stamp = (value: DateTime) => value.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+  const label = input.kind === "course" ? "Crash course" : "Swimming lesson";
   const params = new URLSearchParams({
     action: "TEMPLATE",
-    text: `Swimming lesson — ${input.title}`,
+    text: `${label} — ${input.title}`,
     dates: `${stamp(input.startsAt)}/${stamp(input.endsAt)}`,
-    details: `Lido booking ${input.reference}. Adult swimming lesson (${input.level}) at ${input.location}.`,
+    details: `Lido booking ${input.reference}. Adult swimming (${input.level}) at ${input.location}.`,
     location: `${input.location}, ${input.address}`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+export function presentLocation(row: LocationRow): LocationDto {
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    enabled: Number(row.enabled) !== 0,
+  };
 }
 
 export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): SlotDto {
@@ -73,6 +99,7 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
   const spotsLabel = spotsLeft <= 0 ? "Full" : spotsLeft === 1 ? "1 spot left" : `${spotsLeft} spots left`;
   return {
     id: slot.id,
+    locationId: slot.location_id,
     title: slot.title,
     level: slot.level,
     blurb: slot.blurb,
@@ -87,7 +114,7 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
     dateKey: local.toFormat("yyyy-MM-dd"),
     weekKey: week.weekKey,
     weekLabel: week.weekLabel,
-    durationMinutes: Math.round((endsAt.toMillis() - startsAt.toMillis()) / 60000),
+    durationMinutes: slot.duration_minutes,
     pricePence: slot.price_pence,
     priceLabel: formatGBP(slot.price_pence),
     capacity: slot.capacity,
@@ -102,9 +129,12 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
   };
 }
 
-export function presentRule(rule: AvailabilityRuleRow): AvailabilityRuleDto {
+export function presentRule(rule: AvailabilityRuleRow, location: LocationRow): AvailabilityRuleDto {
   return {
     id: rule.id,
+    locationId: rule.location_id,
+    locationName: location.name,
+    locationAddress: location.address,
     weekday: rule.weekday,
     weekdayLabel: WEEKDAY_LABELS[rule.weekday] ?? `Day ${rule.weekday}`,
     hour: rule.hour,
@@ -117,8 +147,6 @@ export function presentRule(rule: AvailabilityRuleRow): AvailabilityRuleDto {
     title: rule.title,
     level: rule.level,
     blurb: rule.blurb,
-    location: rule.location,
-    address: rule.address,
     instructor: rule.instructor,
     enabled: Number(rule.enabled) !== 0,
     createdAt: rule.created_at,
@@ -126,9 +154,172 @@ export function presentRule(rule: AvailabilityRuleRow): AvailabilityRuleDto {
   };
 }
 
-export function presentBooking(booking: BookingRow, slot: SlotRow, occupied: number, now: DateTime): BookingDto {
-  const startsAt = fromIso(slot.starts_at);
-  const presentedSlot = presentSlot(slot, occupied, now);
+export function presentCourseProduct(product: CourseProductRow, location: LocationRow): CourseProductDto {
+  return {
+    id: product.id,
+    locationId: product.location_id,
+    locationName: location.name,
+    days: product.days,
+    dailyMinutes: product.daily_minutes,
+    capacity: product.capacity,
+    pricePence: product.price_pence,
+    priceLabel: formatGBP(product.price_pence),
+    title: product.title,
+    level: product.level,
+    blurb: product.blurb,
+    instructor: product.instructor,
+    enabled: Number(product.enabled) !== 0,
+  };
+}
+
+export function presentCourseSession(row: CourseSessionRow): CourseSessionDto {
+  const startsAt = fromIso(row.starts_at);
+  const endsAt = fromIso(row.ends_at);
+  const local = startsAt.setZone(ZONE);
+  return {
+    dayIndex: row.day_index,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    dayLabel: local.toFormat("cccc d LLLL"),
+    timeLabel: `${clockLabel(local)}–${clockLabel(endsAt)}`,
+    dateKey: local.toFormat("yyyy-MM-dd"),
+  };
+}
+
+export function presentCourseRun(
+  run: CourseRunRow,
+  sessions: CourseSessionRow[],
+  occupied: number,
+  now: DateTime,
+): CourseRunDto {
+  const ordered = [...sessions].sort((a, b) => a.day_index - b.day_index);
+  const sessionDtos = ordered.map(presentCourseSession);
+  const firstStarts = fromIso(ordered[0]?.starts_at ?? run.first_date);
+  const lastEnds = fromIso(ordered[ordered.length - 1]?.ends_at ?? run.first_date);
+  const firstLocal = firstStarts.setZone(ZONE);
+  const lastLocal = lastEnds.setZone(ZONE);
+  const dailyLocal = DateTime.fromObject(
+    { hour: run.daily_hour, minute: run.daily_minute },
+    { zone: ZONE },
+  );
+  const dateSummary =
+    firstLocal.toFormat("d LLL") === lastLocal.toFormat("d LLL yyyy")
+      ? `${firstLocal.toFormat("cccc d LLLL")} · ${run.days} days`
+      : `${firstLocal.toFormat("d LLL")} – ${lastLocal.toFormat("d LLL yyyy")}`;
+  const spotsLeft = spotsRemaining(run.capacity, occupied);
+  const window = getBookingBlock(firstStarts, now);
+  const enabled = Number(run.enabled) !== 0;
+  const cancelled = Number(run.cancelled) !== 0;
+  let unavailableReason = window.ok ? null : window.message;
+  if (!unavailableReason && (!enabled || cancelled)) {
+    unavailableReason = "This course isn't available.";
+  }
+  if (!unavailableReason && spotsLeft <= 0) {
+    unavailableReason = "This course is full.";
+  }
+  const spotsLabel = spotsLeft <= 0 ? "Full" : spotsLeft === 1 ? "1 place left" : `${spotsLeft} places left`;
+  return {
+    id: run.id,
+    productId: run.product_id,
+    locationId: run.location_id,
+    title: run.title,
+    level: run.level,
+    blurb: run.blurb,
+    instructor: run.instructor,
+    location: run.location,
+    address: run.address,
+    days: run.days,
+    dailyMinutes: run.daily_minutes,
+    firstDate: run.first_date,
+    dailyHour: run.daily_hour,
+    dailyMinute: run.daily_minute,
+    dailyTimeLabel: clockMinutesLabel(run.daily_hour, run.daily_minute),
+    dateSummary,
+    startsAt: ordered[0]?.starts_at ?? toUtcIsoFallback(firstStarts),
+    endsAt: ordered[ordered.length - 1]?.ends_at ?? toUtcIsoFallback(lastEnds),
+    pricePence: run.price_pence,
+    priceLabel: formatGBP(run.price_pence),
+    capacity: run.capacity,
+    spotsLeft,
+    spotsLabel,
+    bookable: unavailableReason === null,
+    unavailableReason,
+    soon:
+      firstStarts.toMillis() > now.toMillis() &&
+      firstStarts.toMillis() - now.toMillis() < RESCHEDULE_CUTOFF_MS,
+    enabled,
+    cancelled,
+    sessions: sessionDtos,
+  };
+}
+
+function toUtcIsoFallback(value: DateTime): string {
+  return value.toUTC().toISO() ?? value.toISO() ?? "";
+}
+
+export function presentBooking(
+  booking: BookingRow,
+  now: DateTime,
+  details:
+    | { slot: SlotRow; occupied: number }
+    | { run: CourseRunRow; sessions: CourseSessionRow[]; occupied: number },
+): BookingDto {
+  const kind = booking.kind ?? "lesson";
+  if (kind === "course" && "run" in details) {
+    const course = presentCourseRun(details.run, details.sessions, details.occupied, now);
+    const firstStarts = fromIso(course.startsAt);
+    const decision = getRescheduleBlock(firstStarts, now);
+    let rescheduleAllowed = booking.status === "confirmed" && decision.ok;
+    let rescheduleBlockedReason = decision.ok ? null : decision.message;
+    if (booking.status === "pending_payment") {
+      rescheduleAllowed = false;
+      rescheduleBlockedReason = "Finish payment before moving this course.";
+    } else if (booking.status !== "confirmed") {
+      rescheduleAllowed = false;
+      rescheduleBlockedReason = "This booking can no longer be moved.";
+    }
+    const hold = booking.hold_expires_at ? fromIso(booking.hold_expires_at) : null;
+    return {
+      id: booking.id,
+      reference: booking.reference,
+      kind: "course",
+      status: booking.status,
+      paymentSource: booking.payment_source,
+      pricePence: booking.price_pence,
+      priceLabel: formatGBP(booking.price_pence),
+      createdAt: booking.created_at,
+      confirmedAt: booking.confirmed_at,
+      holdExpiresAt: booking.hold_expires_at,
+      holdExpiresLabel: hold && booking.status === "pending_payment" ? formatDeadline(hold) : null,
+      phase: firstStarts.toMillis() > now.toMillis() ? "upcoming" : "past",
+      rescheduleAllowed,
+      rescheduleBlockedReason,
+      rescheduleClosesAt: decision.closesAt.toUTC().toISO() ?? decision.closesAt.toISO() ?? "",
+      rescheduleClosesLabel: formatDeadline(decision.closesAt),
+      calendarSynced: Boolean(booking.calendar_event_id),
+      googleCalendarUrl:
+        booking.status === "confirmed"
+          ? googleCalendarTemplateUrl({
+              title: details.run.title,
+              startsAt: firstStarts,
+              endsAt: fromIso(course.endsAt),
+              location: details.run.location,
+              address: details.run.address,
+              reference: booking.reference,
+              level: details.run.level,
+              kind: "course",
+            })
+          : null,
+      slot: null,
+      course,
+    };
+  }
+
+  const slotRow = "slot" in details ? details.slot : null;
+  if (!slotRow) throw new Error("Lesson bookings require a slot.");
+  const occupied = "occupied" in details ? details.occupied : 0;
+  const startsAt = fromIso(slotRow.starts_at);
+  const presentedSlot = presentSlot(slotRow, occupied, now);
   const decision = getRescheduleBlock(startsAt, now);
   let rescheduleAllowed = booking.status === "confirmed" && decision.ok;
   let rescheduleBlockedReason = decision.ok ? null : decision.message;
@@ -143,6 +334,7 @@ export function presentBooking(booking: BookingRow, slot: SlotRow, occupied: num
   return {
     id: booking.id,
     reference: booking.reference,
+    kind: "lesson",
     status: booking.status,
     paymentSource: booking.payment_source,
     pricePence: booking.price_pence,
@@ -160,15 +352,21 @@ export function presentBooking(booking: BookingRow, slot: SlotRow, occupied: num
     googleCalendarUrl:
       booking.status === "confirmed"
         ? googleCalendarTemplateUrl({
-            title: slot.title,
+            title: slotRow.title,
             startsAt,
-            endsAt: fromIso(slot.ends_at),
-            location: slot.location,
-            address: slot.address,
+            endsAt: fromIso(slotRow.ends_at),
+            location: slotRow.location,
+            address: slotRow.address,
             reference: booking.reference,
-            level: slot.level,
+            level: slotRow.level,
+            kind: "lesson",
           })
         : null,
     slot: presentedSlot,
+    course: null,
   };
+}
+
+export function courseDailyMinutesLabel(): number {
+  return COURSE_DAILY_MINUTES;
 }

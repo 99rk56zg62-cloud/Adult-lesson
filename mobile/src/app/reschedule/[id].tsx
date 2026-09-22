@@ -5,7 +5,7 @@ import { api, messageOf } from "@/api";
 import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { colors, levelColor, serif } from "@/theme";
-import type { Booking, DayAvailability, Slot } from "@/types";
+import type { Booking, CourseRun, DayAvailability, Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
@@ -15,6 +15,7 @@ export default function RescheduleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [courses, setCourses] = useState<CourseRun[]>([]);
   const [days, setDays] = useState<DayAvailability[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -22,19 +23,33 @@ export default function RescheduleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const isCourse = booking?.kind === "course";
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [nextBooking, schedule] = await Promise.all([api.booking(one(id)), api.slots()]);
+        const nextBooking = await api.booking(one(id));
         if (cancelled) return;
         setBooking(nextBooking.booking);
-        setSlots(schedule.slots);
-        setDays(schedule.days);
-        const first = schedule.days.find((day) => day.selectable && day.dateKey !== nextBooking.booking.slot.dateKey)
-          ?? schedule.days.find((day) => day.selectable);
-        setSelectedDay(first?.dateKey ?? null);
-        if (first) setMonthKey(first.dateKey.slice(0, 7));
+        if (nextBooking.booking.kind === "course") {
+          const courseList = await api.courses({ days: nextBooking.booking.course?.days });
+          if (cancelled) return;
+          setCourses(courseList.courses.filter((course) => course.id !== nextBooking.booking.course?.id));
+        } else {
+          const schedule = await api.slots({
+            locationId: nextBooking.booking.slot?.locationId,
+            durationMinutes: nextBooking.booking.slot?.durationMinutes,
+          });
+          if (cancelled) return;
+          setSlots(schedule.slots);
+          setDays(schedule.days);
+          const first =
+            schedule.days.find((day) => day.selectable && day.dateKey !== nextBooking.booking.slot?.dateKey) ??
+            schedule.days.find((day) => day.selectable);
+          setSelectedDay(first?.dateKey ?? null);
+          if (first) setMonthKey(first.dateKey.slice(0, 7));
+        }
       } catch (caught) {
         if (!cancelled) setError(messageOf(caught));
       }
@@ -45,18 +60,21 @@ export default function RescheduleScreen() {
   }, [id]);
 
   const options = useMemo(
-    () => slots.filter((slot) => slot.bookable && slot.id !== booking?.slot.id && slot.dateKey === selectedDay),
-    [slots, booking?.slot.id, selectedDay],
+    () => slots.filter((slot) => slot.bookable && slot.id !== booking?.slot?.id && slot.dateKey === selectedDay),
+    [slots, booking?.slot?.id, selectedDay],
   );
-  const chosen = options.find((slot) => slot.id === selected) ?? null;
+  const chosenSlot = options.find((slot) => slot.id === selected) ?? null;
+  const chosenCourse = courses.find((course) => course.id === selected) ?? null;
   const dayMeta = days.find((day) => day.dateKey === selectedDay) ?? null;
 
   async function confirm() {
-    if (!booking || !chosen) return;
+    if (!booking) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await api.reschedule(booking.id, chosen.id);
+      const result = isCourse
+        ? await api.reschedule(booking.id, { courseRunId: chosenCourse!.id })
+        : await api.reschedule(booking.id, { slotId: chosenSlot!.id });
       router.replace(`/booking/${result.booking.id}`);
     } catch (caught) {
       setError(messageOf(caught));
@@ -67,17 +85,44 @@ export default function RescheduleScreen() {
 
   return (
     <Phone>
-      <TopBar tone="dark" title="New time" subtitle="You won't be charged again." back />
+      <TopBar tone="dark" title={isCourse ? "New course run" : "New time"} subtitle="You won't be charged again." back />
       {!booking && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 28 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
         {booking && !booking.rescheduleAllowed ? (
-          <Banner tone="warn" text={booking.rescheduleBlockedReason ?? "This lesson can't be rearranged."} />
+          <Banner tone="warn" text={booking.rescheduleBlockedReason ?? "This booking can't be changed."} />
         ) : null}
-        {booking?.rescheduleAllowed ? (
+        {booking?.rescheduleAllowed && isCourse ? (
           <>
             <Text style={styles.lead}>
-              Currently {booking.slot.dayLabel}, {booking.slot.timeLabel}.
+              Currently {booking.course?.dateSummary}, {booking.course?.dailyTimeLabel} daily.
+            </Text>
+            {courses.length === 0 ? <Text style={styles.empty}>No other open {booking.course?.days}-day runs right now.</Text> : null}
+            {courses.map((course) => (
+              <Pressable
+                key={course.id}
+                accessibilityRole="button"
+                onPress={() => setSelected(course.id)}
+                style={[styles.timeRow, selected === course.id && styles.selected]}
+              >
+                <View style={[styles.bar, { backgroundColor: levelColor(course.level) }]} />
+                <View style={styles.body}>
+                  <Text style={styles.time}>{course.dateSummary}</Text>
+                  <Text style={styles.title}>{course.title}</Text>
+                  <Text style={styles.meta}>
+                    {course.dailyTimeLabel} daily · {course.spotsLabel}
+                  </Text>
+                </View>
+                <Text style={styles.price}>{course.priceLabel}</Text>
+              </Pressable>
+            ))}
+            {chosenCourse?.soon ? <Banner tone="warn" text="That run starts soon, so you won't be able to move it again." /> : null}
+          </>
+        ) : null}
+        {booking?.rescheduleAllowed && !isCourse ? (
+          <>
+            <Text style={styles.lead}>
+              Currently {booking.slot?.dayLabel}, {booking.slot?.timeLabel}.
             </Text>
             <BookingCalendar
               monthKey={monthKey}
@@ -109,13 +154,17 @@ export default function RescheduleScreen() {
                 <Text style={styles.price}>{slot.priceLabel}</Text>
               </Pressable>
             ))}
-            {chosen?.soon ? <Banner tone="warn" text="That session starts soon, so you won't be able to rearrange it again." /> : null}
+            {chosenSlot?.soon ? <Banner tone="warn" text="That session starts soon, so you won't be able to rearrange it again." /> : null}
           </>
         ) : null}
       </ScrollView>
       {booking?.rescheduleAllowed ? (
         <View style={styles.footer}>
-          <Button label={busy ? "Moving…" : chosen ? "Confirm new time" : "Choose a session"} disabled={!chosen || busy} onPress={confirm} />
+          <Button
+            label={busy ? "Moving…" : isCourse ? (chosenCourse ? "Confirm new run" : "Choose a run") : chosenSlot ? "Confirm new time" : "Choose a session"}
+            disabled={busy || (isCourse ? !chosenCourse : !chosenSlot)}
+            onPress={confirm}
+          />
         </View>
       ) : null}
     </Phone>

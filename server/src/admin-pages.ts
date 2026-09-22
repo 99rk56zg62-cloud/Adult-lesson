@@ -1,6 +1,6 @@
-import { WEEKDAY_LABELS } from "./availability.js";
+import { LESSON_DURATIONS, WEEKDAY_LABELS } from "./availability.js";
 import { esc } from "./pages.js";
-import type { AvailabilityRuleDto, SlotDto } from "./types.js";
+import type { AvailabilityRuleDto, CourseProductDto, CourseRunDto, LocationDto, SlotDto } from "./types.js";
 
 function adminShell(title: string, body: string, notice?: string | null): string {
   return `<!doctype html>
@@ -46,11 +46,13 @@ function adminShell(title: string, body: string, notice?: string | null): string
   <header>
     <div class="brand">LIDO · BACK OFFICE</div>
     <h1>${esc(title)}</h1>
-    <p>Manage weekly availability and one-off sessions. Customers only see open places in the next 6 weeks.</p>
+    <p>Manage locations, weekly 30/60 minute lessons, one-off slots, and crash courses. Customers book up to 6 weeks ahead.</p>
     <nav>
       <a href="/admin">Overview</a>
+      <a href="/admin/locations">Locations</a>
       <a href="/admin/availability">Weekly availability</a>
       <a href="/admin/sessions">Upcoming sessions</a>
+      <a href="/admin/courses">Crash courses</a>
       <a href="/admin/logout">Sign out</a>
     </nav>
   </header>
@@ -98,29 +100,49 @@ export function adminLoginPage(error?: string | null): string {
 export function adminOverviewPage(input: {
   rules: AvailabilityRuleDto[];
   upcoming: SlotDto[];
+  courses: CourseRunDto[];
+  locations: LocationDto[];
   notice?: string | null;
 }): string {
   const active = input.rules.filter((rule) => rule.enabled).length;
   const open = input.upcoming.filter((slot) => slot.bookable).length;
+  const openCourses = input.courses.filter((course) => course.bookable).length;
   return adminShell(
     "Overview",
     `<div class="card">
       <h2>At a glance</h2>
-      <p><strong>${active}</strong> weekly class${active === 1 ? "" : "es"} on · <strong>${open}</strong> bookable session${open === 1 ? "" : "s"} in the next 6 weeks.</p>
+      <p><strong>${input.locations.filter((l) => l.enabled).length}</strong> location${input.locations.length === 1 ? "" : "s"} · <strong>${active}</strong> weekly class${active === 1 ? "" : "es"} · <strong>${open}</strong> bookable lesson${open === 1 ? "" : "s"} · <strong>${openCourses}</strong> open crash course${openCourses === 1 ? "" : "s"}.</p>
       <div class="row">
         <a class="button" href="/admin/availability">Edit weekly availability</a>
-        <a class="button secondary" href="/admin/sessions">Review upcoming sessions</a>
+        <a class="button secondary" href="/admin/courses">Manage crash courses</a>
       </div>
     </div>
     <div class="card">
       <h2>How customers book</h2>
-      <p class="muted">They open a calendar, pick a date that has open places, choose a time, and pay. Full or cancelled sessions stay greyed out. The 6-week window and 24-hour rearrange lock are enforced by the API.</p>
+      <p class="muted">They pick a location (when more than one exists), choose 30 or 60 minute single lessons on the calendar, or book a 3/4/5-day morning crash course. Full sessions stay greyed out. The 6-week window and 24-hour rearrange lock apply to both lessons and courses (courses lock 24 hours before day one).</p>
     </div>`,
     input.notice,
   );
 }
 
-function ruleForm(action: string, rule?: AvailabilityRuleDto, submitLabel = "Save"): string {
+function locationOptions(locations: LocationDto[], selected?: string): string {
+  return locations
+    .filter((location) => location.enabled)
+    .map((location) => {
+      const sel = selected === location.id ? " selected" : "";
+      return `<option value="${esc(location.id)}"${sel}>${esc(location.name)}</option>`;
+    })
+    .join("");
+}
+
+function durationOptions(selected?: number): string {
+  return LESSON_DURATIONS.map((minutes) => {
+    const sel = selected === minutes ? " selected" : "";
+    return `<option value="${minutes}"${sel}>${minutes} minutes</option>`;
+  }).join("");
+}
+
+function ruleForm(locations: LocationDto[], action: string, rule?: AvailabilityRuleDto, submitLabel = "Save"): string {
   const weekdayOptions = WEEKDAY_LABELS.map((label, value) => {
     if (!value) return "";
     const selected = rule?.weekday === value ? " selected" : "";
@@ -132,24 +154,62 @@ function ruleForm(action: string, rule?: AvailabilityRuleDto, submitLabel = "Sav
   return `<form method="post" action="${esc(action)}" class="card">
     <h2>${rule ? `Edit ${esc(rule.title)}` : "Add weekly availability"}</h2>
     <div class="grid">
+      <div><label>Location</label><select name="locationId" required>${locationOptions(locations, rule?.locationId)}</select></div>
       <div><label>Lesson title</label><input name="title" required value="${esc(rule?.title ?? "")}" /></div>
       <div><label>Level</label><select name="level">${levels}</select></div>
       <div><label>Day of week</label><select name="weekday">${weekdayOptions}</select></div>
       <div><label>Start time</label><input name="time" type="time" required value="${esc(rule ? `${String(rule.hour).padStart(2, "0")}:${String(rule.minute).padStart(2, "0")}` : "19:00")}" /></div>
-      <div><label>Length (minutes)</label><input name="durationMinutes" type="number" min="15" max="180" required value="${rule?.durationMinutes ?? 45}" /></div>
+      <div><label>Length</label><select name="durationMinutes">${durationOptions(rule?.durationMinutes ?? 30)}</select></div>
       <div><label>Places</label><input name="capacity" type="number" min="1" max="50" required value="${rule?.capacity ?? 8}" /></div>
-      <div><label>Price (£)</label><input name="pricePounds" type="number" min="0.5" step="0.01" required value="${rule ? (rule.pricePence / 100).toFixed(2) : "28.00"}" /></div>
+      <div><label>Price (£)</label><input name="pricePounds" type="number" min="0.5" step="0.01" required value="${rule ? (rule.pricePence / 100).toFixed(2) : "22.00"}" /></div>
       <div><label>Teacher</label><input name="instructor" required value="${esc(rule?.instructor ?? "")}" /></div>
-      <div><label>Pool / location</label><input name="location" required value="${esc(rule?.location ?? "")}" /></div>
-      <div><label>Address</label><input name="address" required value="${esc(rule?.address ?? "")}" /></div>
     </div>
     <div style="margin-top:12px"><label>Short description</label><textarea name="blurb" required>${esc(rule?.blurb ?? "")}</textarea></div>
     <div class="row"><button type="submit">${esc(submitLabel)}</button></div>
   </form>`;
 }
 
+export function adminLocationsPage(input: {
+  locations: LocationDto[];
+  editId?: string | null;
+  notice?: string | null;
+}): string {
+  const editing = input.locations.find((location) => location.id === input.editId);
+  const rows = input.locations
+    .map(
+      (location) => `<tr>
+        <td><strong>${esc(location.name)}</strong><br /><span class="muted">${esc(location.address)}</span></td>
+        <td><span class="pill ${location.enabled ? "on" : "off"}">${location.enabled ? "Open" : "Hidden"}</span></td>
+        <td><a class="button secondary" href="/admin/locations?edit=${encodeURIComponent(location.id)}">Edit</a></td>
+      </tr>`,
+    )
+    .join("");
+  const form = `<form method="post" action="${editing ? `/admin/locations/${encodeURIComponent(editing.id)}` : "/admin/locations"}" class="card">
+    <h2>${editing ? `Edit ${esc(editing.name)}` : "Add location"}</h2>
+    <div class="grid">
+      <div><label>Name</label><input name="name" required value="${esc(editing?.name ?? "")}" /></div>
+      <div><label>Address</label><input name="address" required value="${esc(editing?.address ?? "")}" /></div>
+      ${editing ? `<div><label>Status</label><select name="enabled"><option value="1"${editing.enabled ? " selected" : ""}>Open</option><option value="0"${!editing.enabled ? " selected" : ""}>Hidden</option></select></div>` : ""}
+    </div>
+    <div class="row"><button type="submit">${editing ? "Update location" : "Add location"}</button></div>
+  </form>`;
+  return adminShell(
+    "Locations",
+    `${form}
+     <div class="card">
+       <h2>All locations</h2>
+       <table>
+         <thead><tr><th>Location</th><th>Status</th><th></th></tr></thead>
+         <tbody>${rows || `<tr><td colspan="3" class="muted">No locations yet.</td></tr>`}</tbody>
+       </table>
+     </div>`,
+    input.notice,
+  );
+}
+
 export function adminAvailabilityPage(input: {
   rules: AvailabilityRuleDto[];
+  locations: LocationDto[];
   editId?: string | null;
   notice?: string | null;
 }): string {
@@ -159,7 +219,7 @@ export function adminAvailabilityPage(input: {
       return `<tr>
         <td><strong>${esc(rule.title)}</strong><br /><span class="muted">${esc(rule.level)} · ${esc(rule.instructor)}</span></td>
         <td>${esc(rule.weekdayLabel)}<br />${esc(rule.timeLabel)} · ${rule.durationMinutes} min</td>
-        <td>${esc(rule.location)}<br />${rule.capacity} places · ${esc(rule.priceLabel)}</td>
+        <td>${esc(rule.locationName)}<br />${rule.capacity} places · ${esc(rule.priceLabel)}</td>
         <td><span class="pill ${rule.enabled ? "on" : "off"}">${rule.enabled ? "On" : "Off"}</span></td>
         <td>
           <div class="row">
@@ -176,10 +236,10 @@ export function adminAvailabilityPage(input: {
 
   return adminShell(
     "Weekly availability",
-    `${editing ? ruleForm(`/admin/rules/${encodeURIComponent(editing.id)}`, editing, "Update weekly class") : ruleForm("/admin/rules", undefined, "Add weekly class")}
+    `${editing ? ruleForm(input.locations, `/admin/rules/${encodeURIComponent(editing.id)}`, editing, "Update weekly class") : ruleForm(input.locations, "/admin/rules", undefined, "Add weekly class")}
      <div class="card">
        <h2>Current weekly classes</h2>
-       <p class="muted">Turning a class off hides future sessions from the customer calendar. Existing paid bookings stay put.</p>
+       <p class="muted">Single lessons are 30 or 60 minutes only. Turning a class off hides future sessions from the customer calendar.</p>
        <table>
          <thead><tr><th>Lesson</th><th>When</th><th>Where</th><th>Status</th><th></th></tr></thead>
          <tbody>${rows || `<tr><td colspan="5" class="muted">No weekly availability yet.</td></tr>`}</tbody>
@@ -191,6 +251,7 @@ export function adminAvailabilityPage(input: {
 
 export function adminSessionsPage(input: {
   slots: SlotDto[];
+  locations: LocationDto[];
   notice?: string | null;
 }): string {
   const upcoming = input.slots.filter((slot) => new Date(slot.startsAt).getTime() > Date.now()).slice(0, 80);
@@ -204,7 +265,7 @@ export function adminSessionsPage(input: {
             ? `<span class="pill full">Full</span>`
             : `<span class="pill on">${esc(slot.spotsLabel)}</span>`;
       return `<tr>
-        <td><strong>${esc(slot.dayLabel)}</strong><br />${esc(slot.timeLabel)}</td>
+        <td><strong>${esc(slot.dayLabel)}</strong><br />${esc(slot.timeLabel)} · ${slot.durationMinutes} min</td>
         <td>${esc(slot.title)}<br /><span class="muted">${esc(slot.level)} · ${esc(slot.location)}</span></td>
         <td>${esc(slot.priceLabel)} · ${slot.capacity} places<br />${status}</td>
         <td>
@@ -222,10 +283,11 @@ export function adminSessionsPage(input: {
     `<div class="card">
       <h2>Add a one-off session</h2>
       <form method="post" action="/admin/slots" class="grid">
+        <div><label>Location</label><select name="locationId" required>${locationOptions(input.locations)}</select></div>
         <div><label>Start (UK local)</label><input name="startsAtLocal" type="datetime-local" required /></div>
-        <div><label>Length (minutes)</label><input name="durationMinutes" type="number" min="15" max="180" value="45" required /></div>
+        <div><label>Length</label><select name="durationMinutes">${durationOptions(30)}</select></div>
         <div><label>Places</label><input name="capacity" type="number" min="1" max="50" value="8" required /></div>
-        <div><label>Price (£)</label><input name="pricePounds" type="number" min="0.5" step="0.01" value="28.00" required /></div>
+        <div><label>Price (£)</label><input name="pricePounds" type="number" min="0.5" step="0.01" value="22.00" required /></div>
         <div><label>Title</label><input name="title" value="Adult beginners" required /></div>
         <div><label>Level</label>
           <select name="level">
@@ -233,8 +295,6 @@ export function adminSessionsPage(input: {
           </select>
         </div>
         <div><label>Teacher</label><input name="instructor" value="Sam Okonkwo" required /></div>
-        <div><label>Pool</label><input name="location" value="Riverside Lido" required /></div>
-        <div><label>Address</label><input name="address" value="Pool Lane, Bristol" required /></div>
         <div style="grid-column:1/-1"><label>Description</label><textarea name="blurb" required>A one-off adult swimming lesson.</textarea></div>
         <div style="grid-column:1/-1"><button type="submit">Add session</button></div>
       </form>
@@ -245,6 +305,93 @@ export function adminSessionsPage(input: {
       <table>
         <thead><tr><th>When</th><th>Lesson</th><th>Places</th><th></th></tr></thead>
         <tbody>${rows || `<tr><td colspan="4" class="muted">No upcoming sessions.</td></tr>`}</tbody>
+      </table>
+    </div>`,
+    input.notice,
+  );
+}
+
+export function adminCoursesPage(input: {
+  products: CourseProductDto[];
+  runs: CourseRunDto[];
+  locations: LocationDto[];
+  notice?: string | null;
+}): string {
+  const productRows = input.products
+    .map(
+      (product) => `<tr>
+        <td><strong>${esc(product.title)}</strong><br /><span class="muted">${product.days} days · ${product.dailyMinutes} min/day · ${esc(product.locationName)}</span></td>
+        <td>${esc(product.level)} · ${esc(product.instructor)}<br />${product.capacity} places · ${esc(product.priceLabel)}</td>
+        <td><span class="pill ${product.enabled ? "on" : "off"}">${product.enabled ? "On" : "Off"}</span></td>
+      </tr>`,
+    )
+    .join("");
+  const runRows = input.runs
+    .map((run) => {
+      const status = run.cancelled
+        ? `<span class="pill off">Cancelled</span>`
+        : !run.enabled
+          ? `<span class="pill off">Hidden</span>`
+          : run.spotsLeft <= 0
+            ? `<span class="pill full">Full</span>`
+            : `<span class="pill on">${esc(run.spotsLabel)}</span>`;
+      return `<tr>
+        <td><strong>${esc(run.title)}</strong><br /><span class="muted">${esc(run.dateSummary)} · ${esc(run.dailyTimeLabel)} daily</span></td>
+        <td>${esc(run.location)}<br />${esc(run.priceLabel)} · ${status}</td>
+        <td>
+          <form method="post" action="/admin/course-runs/${encodeURIComponent(run.id)}/cancel" class="row">
+            <input type="hidden" name="cancelled" value="${run.cancelled ? "0" : "1"}" />
+            <button class="${run.cancelled ? "secondary" : "danger"}" type="submit">${run.cancelled ? "Restore" : "Cancel run"}</button>
+          </form>
+        </td>
+      </tr>`;
+    })
+    .join("");
+  const productOptions = input.products
+    .filter((product) => product.enabled)
+    .map((product) => `<option value="${esc(product.id)}">${esc(product.title)} (${product.days} days)</option>`)
+    .join("");
+  const levels = ["Beginners", "Improvers", "Confidence", "Technique"]
+    .map((level) => `<option>${level}</option>`)
+    .join("");
+  return adminShell(
+    "Crash courses",
+    `<div class="card">
+      <h2>Add course product</h2>
+      <form method="post" action="/admin/course-products" class="grid">
+        <div><label>Location</label><select name="locationId" required>${locationOptions(input.locations)}</select></div>
+        <div><label>Days</label><select name="days"><option value="3">3 days</option><option value="4">4 days</option><option value="5">5 days</option></select></div>
+        <div><label>Title</label><input name="title" value="3-day crash course" required /></div>
+        <div><label>Level</label><select name="level">${levels}</select></div>
+        <div><label>Places</label><input name="capacity" type="number" min="1" max="20" value="6" required /></div>
+        <div><label>Price (£)</label><input name="pricePounds" type="number" min="1" step="0.01" value="99.00" required /></div>
+        <div><label>Teacher</label><input name="instructor" value="Sam Okonkwo" required /></div>
+        <div style="grid-column:1/-1"><label>Description</label><textarea name="blurb" required>Morning crash course for adults.</textarea></div>
+        <div style="grid-column:1/-1"><button type="submit">Add product</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Schedule a course run</h2>
+      <p class="muted">Daily start must be between 06:00 and 09:00 UK time. Each day is 90 minutes.</p>
+      <form method="post" action="/admin/course-runs" class="grid">
+        <div><label>Product</label><select name="productId" required>${productOptions}</select></div>
+        <div><label>First day</label><input name="firstDate" type="date" required /></div>
+        <div><label>Daily start</label><input name="time" type="time" value="07:00" required /></div>
+        <div style="grid-column:1/-1"><button type="submit">Create run</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Course products</h2>
+      <table>
+        <thead><tr><th>Product</th><th>Details</th><th>Status</th></tr></thead>
+        <tbody>${productRows || `<tr><td colspan="3" class="muted">No products yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Scheduled runs</h2>
+      <table>
+        <thead><tr><th>Run</th><th>Where</th><th></th></tr></thead>
+        <tbody>${runRows || `<tr><td colspan="3" class="muted">No runs yet.</td></tr>`}</tbody>
       </table>
     </div>`,
     input.notice,

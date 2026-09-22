@@ -7,7 +7,9 @@ import { DateTime } from "luxon";
 import type { DatabaseSync } from "node:sqlite";
 import {
   adminAvailabilityPage,
+  adminCoursesPage,
   adminDisabledPage,
+  adminLocationsPage,
   adminLoginPage,
   adminOverviewPage,
   adminSessionsPage,
@@ -48,13 +50,23 @@ const returnSchema = z.object({
   returnUrl: z.string().min(8, "Missing return address.").max(2000),
 });
 
-const createBookingSchema = returnSchema.extend({
-  slotId: z.string().min(1, "Choose a session."),
-});
+const createBookingSchema = returnSchema
+  .extend({
+    slotId: z.string().min(1).optional(),
+    courseRunId: z.string().min(1).optional(),
+  })
+  .refine((body) => Boolean(body.slotId) !== Boolean(body.courseRunId), {
+    message: "Choose either a single lesson or a crash course.",
+  });
 
-const rescheduleSchema = z.object({
-  slotId: z.string().min(1, "Choose a session."),
-});
+const rescheduleSchema = z
+  .object({
+    slotId: z.string().min(1).optional(),
+    courseRunId: z.string().min(1).optional(),
+  })
+  .refine((body) => Boolean(body.slotId) !== Boolean(body.courseRunId), {
+    message: "Choose a new session or course run.",
+  });
 
 const confirmSchema = z.object({
   sessionId: z.string().min(4, "Missing payment session."),
@@ -63,32 +75,55 @@ const confirmSchema = z.object({
 const levelSchema = z.enum(["Beginners", "Improvers", "Confidence", "Technique"]);
 
 const adminSlotSchema = z.object({
+  locationId: z.string().min(1, "Choose a location."),
   startsAt: z.string().min(10, "Enter a start time."),
-  durationMinutes: z.number().int().min(15).max(180),
+  durationMinutes: z.union([z.literal(30), z.literal(60)]),
   capacity: z.number().int().min(1).max(50),
   pricePence: z.number().int().min(50).max(100_000),
   title: z.string().trim().min(2).max(80),
   level: levelSchema,
-  location: z.string().trim().min(2).max(80),
-  address: z.string().trim().min(2).max(120),
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
 });
 
 const adminRuleSchema = z.object({
+  locationId: z.string().min(1, "Choose a location."),
   weekday: z.number().int().min(1).max(7),
   hour: z.number().int().min(0).max(23),
   minute: z.number().int().min(0).max(59),
-  durationMinutes: z.number().int().min(15).max(180),
+  durationMinutes: z.union([z.literal(30), z.literal(60)]),
   capacity: z.number().int().min(1).max(50),
   pricePence: z.number().int().min(50).max(100_000),
   title: z.string().trim().min(2).max(80),
   level: levelSchema,
-  location: z.string().trim().min(2).max(80),
-  address: z.string().trim().min(2).max(120),
   instructor: z.string().trim().min(2).max(80),
   blurb: z.string().trim().min(2).max(400),
   enabled: z.boolean().optional(),
+});
+
+const adminLocationSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  address: z.string().trim().min(2).max(120),
+  enabled: z.boolean().optional(),
+});
+
+const adminCourseProductSchema = z.object({
+  locationId: z.string().min(1),
+  days: z.union([z.literal(3), z.literal(4), z.literal(5)]),
+  capacity: z.number().int().min(1).max(20),
+  pricePence: z.number().int().min(100).max(500_000),
+  title: z.string().trim().min(2).max(80),
+  level: levelSchema,
+  instructor: z.string().trim().min(2).max(80),
+  blurb: z.string().trim().min(2).max(400),
+  enabled: z.boolean().optional(),
+});
+
+const adminCourseRunSchema = z.object({
+  productId: z.string().min(1),
+  firstDate: z.string().min(8),
+  dailyHour: z.number().int().min(6).max(9),
+  dailyMinute: z.number().int().min(0).max(59),
 });
 
 function sendError(res: Response, status: number, code: string, message: string) {
@@ -149,6 +184,7 @@ function parseTime(value: string): { hour: number; minute: number } {
 function ruleFromForm(body: any) {
   const time = parseTime(field(body, "time") || "19:00");
   return adminRuleSchema.parse({
+    locationId: field(body, "locationId"),
     weekday: Number(field(body, "weekday")),
     hour: time.hour,
     minute: time.minute,
@@ -157,8 +193,6 @@ function ruleFromForm(body: any) {
     pricePence: poundsToPence(field(body, "pricePounds") || "0"),
     title: field(body, "title"),
     level: field(body, "level"),
-    location: field(body, "location"),
-    address: field(body, "address"),
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
     enabled: true,
@@ -171,16 +205,39 @@ function oneOffFromForm(body: any) {
   const starts = DateTime.fromISO(local, { zone: ZONE });
   if (!starts.isValid) throw new AppError(400, "VALIDATION", "Enter a valid start time.");
   return adminSlotSchema.parse({
+    locationId: field(body, "locationId"),
     startsAt: starts.toISO()!,
     durationMinutes: Number(field(body, "durationMinutes")),
     capacity: Number(field(body, "capacity")),
     pricePence: poundsToPence(field(body, "pricePounds") || "0"),
     title: field(body, "title"),
     level: field(body, "level"),
-    location: field(body, "location"),
-    address: field(body, "address"),
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
+  });
+}
+
+function courseProductFromForm(body: any) {
+  return adminCourseProductSchema.parse({
+    locationId: field(body, "locationId"),
+    days: Number(field(body, "days")),
+    capacity: Number(field(body, "capacity")),
+    pricePence: poundsToPence(field(body, "pricePounds") || "0"),
+    title: field(body, "title"),
+    level: field(body, "level"),
+    instructor: field(body, "instructor"),
+    blurb: field(body, "blurb"),
+    enabled: true,
+  });
+}
+
+function courseRunFromForm(body: any) {
+  const time = parseTime(field(body, "time") || "07:00");
+  return adminCourseRunSchema.parse({
+    productId: field(body, "productId"),
+    firstDate: field(body, "firstDate"),
+    dailyHour: time.hour,
+    dailyMinute: time.minute,
   });
 }
 
@@ -329,10 +386,40 @@ export function createApp(deps: AppDeps) {
   );
 
   app.get(
-    "/api/slots",
+    "/api/locations",
     requireUser,
     route(async (_req, res) => {
-      res.json(service.listSlots(userId(res)));
+      res.json({ locations: service.listLocations() });
+    }),
+  );
+
+  app.get(
+    "/api/slots",
+    requireUser,
+    route(async (req, res) => {
+      const locationId = queryValue(req.query.locationId) ?? undefined;
+      const durationRaw = queryValue(req.query.durationMinutes);
+      const durationMinutes = durationRaw ? Number(durationRaw) : undefined;
+      res.json(service.listSlots(userId(res), { locationId, durationMinutes }));
+    }),
+  );
+
+  app.get(
+    "/api/courses",
+    requireUser,
+    route(async (req, res) => {
+      const locationId = queryValue(req.query.locationId) ?? undefined;
+      const daysRaw = queryValue(req.query.days);
+      const days = daysRaw ? Number(daysRaw) : undefined;
+      res.json(service.listCourses(userId(res), { locationId, days }));
+    }),
+  );
+
+  app.get(
+    "/api/courses/:id",
+    requireUser,
+    route(async (req, res) => {
+      res.json({ course: service.getCourseRun(userId(res), param(req.params.id)) });
     }),
   );
 
@@ -383,7 +470,7 @@ export function createApp(deps: AppDeps) {
     requireUser,
     route(async (req, res) => {
       const body = rescheduleSchema.parse(req.body);
-      const result = await service.reschedule(userId(res), param(req.params.id), body.slotId);
+      const result = await service.reschedule(userId(res), param(req.params.id), body);
       res.json({ booking: result.booking, calendarSyncError: result.calendarSyncError });
     }),
   );
@@ -512,6 +599,89 @@ export function createApp(deps: AppDeps) {
   );
 
   app.get(
+    "/api/admin/locations",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({ locations: service.listAdminLocations() });
+    }),
+  );
+
+  app.post(
+    "/api/admin/locations",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.status(201).json({ location: service.createAdminLocation(adminLocationSchema.parse(req.body)) });
+    }),
+  );
+
+  app.patch(
+    "/api/admin/locations/:id",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const body = adminLocationSchema.partial().parse(req.body);
+      res.json({ location: service.updateAdminLocation(param(req.params.id), body) });
+    }),
+  );
+
+  app.get(
+    "/api/admin/course-products",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({ products: service.listAdminCourseProducts() });
+    }),
+  );
+
+  app.post(
+    "/api/admin/course-products",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.status(201).json({ product: service.createAdminCourseProduct(adminCourseProductSchema.parse(req.body)) });
+    }),
+  );
+
+  app.put(
+    "/api/admin/course-products/:id",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({
+        product: service.updateAdminCourseProduct(param(req.params.id), adminCourseProductSchema.partial().parse(req.body)),
+      });
+    }),
+  );
+
+  app.get(
+    "/api/admin/course-runs",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json({ runs: service.listAdminCourseRuns() });
+    }),
+  );
+
+  app.post(
+    "/api/admin/course-runs",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.status(201).json({ run: service.createAdminCourseRun(adminCourseRunSchema.parse(req.body)) });
+    }),
+  );
+
+  app.patch(
+    "/api/admin/course-runs/:id",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const body = z
+        .object({
+          cancelled: z.boolean().optional(),
+          enabled: z.boolean().optional(),
+          capacity: z.number().int().min(1).max(20).optional(),
+          pricePence: z.number().int().min(100).max(500_000).optional(),
+        })
+        .parse(req.body);
+      res.json({ run: service.updateAdminCourseRun(param(req.params.id), body) });
+    }),
+  );
+
+  app.get(
     "/api/admin/slots",
     route(async (req, res) => {
       requireAdmin(req);
@@ -537,8 +707,6 @@ export function createApp(deps: AppDeps) {
           pricePence: z.number().int().min(50).max(100_000).optional(),
           title: z.string().trim().min(2).max(80).optional(),
           level: levelSchema.optional(),
-          location: z.string().trim().min(2).max(80).optional(),
-          address: z.string().trim().min(2).max(120).optional(),
           instructor: z.string().trim().min(2).max(80).optional(),
           blurb: z.string().trim().min(2).max(400).optional(),
           cancelled: z.boolean().optional(),
@@ -629,6 +797,8 @@ export function createApp(deps: AppDeps) {
         adminOverviewPage({
           rules: service.listAdminRules(),
           upcoming: service.listAdminSlots(),
+          courses: service.listAdminCourseRuns(),
+          locations: service.listAdminLocations(),
           notice: queryValue(req.query.notice),
         }),
       );
@@ -642,6 +812,7 @@ export function createApp(deps: AppDeps) {
       res.type("html").send(
         adminAvailabilityPage({
           rules: service.listAdminRules(),
+          locations: service.listAdminLocations(),
           editId: queryValue(req.query.edit),
           notice: queryValue(req.query.notice),
         }),
@@ -681,12 +852,95 @@ export function createApp(deps: AppDeps) {
   );
 
   app.get(
+    "/admin/locations",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminLocationsPage({
+          locations: service.listAdminLocations(),
+          editId: queryValue(req.query.edit),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/admin/locations",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.createAdminLocation({ name: field(req.body, "name"), address: field(req.body, "address") });
+      res.redirect(303, "/admin/locations?notice=" + encodeURIComponent("Location added."));
+    }),
+  );
+
+  app.post(
+    "/admin/locations/:id",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.updateAdminLocation(param(req.params.id), {
+        name: field(req.body, "name"),
+        address: field(req.body, "address"),
+        enabled: field(req.body, "enabled") === "1",
+      });
+      res.redirect(303, "/admin/locations?notice=" + encodeURIComponent("Location updated."));
+    }),
+  );
+
+  app.get(
+    "/admin/courses",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminCoursesPage({
+          products: service.listAdminCourseProducts(),
+          runs: service.listAdminCourseRuns(),
+          locations: service.listAdminLocations(),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/admin/course-products",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.createAdminCourseProduct(courseProductFromForm(req.body));
+      res.redirect(303, "/admin/courses?notice=" + encodeURIComponent("Course product added."));
+    }),
+  );
+
+  app.post(
+    "/admin/course-runs",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.createAdminCourseRun(courseRunFromForm(req.body));
+      res.redirect(303, "/admin/courses?notice=" + encodeURIComponent("Course run scheduled."));
+    }),
+  );
+
+  app.post(
+    "/admin/course-runs/:id/cancel",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      const cancelled = field(req.body, "cancelled") === "1";
+      service.updateAdminCourseRun(param(req.params.id), { cancelled });
+      res.redirect(
+        303,
+        "/admin/courses?notice=" + encodeURIComponent(cancelled ? "Course run cancelled." : "Course run restored."),
+      );
+    }),
+  );
+
+  app.get(
     "/admin/sessions",
     route(async (req, res) => {
       if (!requireAdminPage(req, res)) return;
       res.type("html").send(
         adminSessionsPage({
           slots: service.listAdminSlots(),
+          locations: service.listAdminLocations(),
           notice: queryValue(req.query.notice),
         }),
       );

@@ -78,50 +78,71 @@ export default function BookingScreen() {
   }
 
   const pending = booking?.status === "pending_payment";
+  const isCourse = booking?.kind === "course";
+  const title = isCourse ? booking?.course?.title : booking?.slot?.title;
+  const when = isCourse
+    ? `${booking?.course?.dateSummary}\n${booking?.course?.dailyTimeLabel} daily · ${booking?.course?.dailyMinutes} min`
+    : `${booking?.slot?.dayLabel}\n${booking?.slot?.timeLabel}`;
+  const place = isCourse
+    ? `${booking?.course?.location}, ${booking?.course?.address}`
+    : `${booking?.slot?.location}, ${booking?.slot?.address}`;
+  const meta = isCourse
+    ? `${booking?.course?.level} · ${booking?.course?.instructor} · Paid ${booking?.priceLabel}`
+    : `${booking?.slot?.level} · ${booking?.slot?.instructor} · Paid ${booking?.priceLabel}`;
 
   return (
     <Phone>
-      <TopBar tone="dark" title={booking?.reference ?? "Lesson"} subtitle={pending ? "Waiting for payment" : "You're booked"} back />
+      <TopBar
+        tone="dark"
+        title={booking?.reference ?? (isCourse ? "Course" : "Lesson")}
+        subtitle={pending ? "Waiting for payment" : "You're booked"}
+        back
+      />
       {!booking && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
         {info ? <Banner tone="ok" text={info} /> : null}
         {booking?.paymentSource === "seed" ? (
-          <Banner tone="warn" text="This sample lesson was added so you can try rearranging. New bookings are charged." />
+          <Banner tone="warn" text="This sample booking was added so you can try rearranging. New bookings are charged." />
         ) : null}
         {booking ? (
           <>
-            <Text style={styles.title}>{booking.slot.title}</Text>
-            <Text style={styles.when}>
-              {booking.slot.dayLabel}
-              {"\n"}
-              {booking.slot.timeLabel}
-            </Text>
-            <Text style={styles.place}>
-              {booking.slot.location}, {booking.slot.address}
-            </Text>
-            <Text style={styles.meta}>
-              {booking.slot.level} · {booking.slot.instructor} · Paid {booking.priceLabel}
-            </Text>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.when}>{when}</Text>
+            {isCourse && booking.course ? (
+              <View style={styles.schedule}>
+                {booking.course.sessions.map((session) => (
+                  <Text key={session.dayIndex} style={styles.sessionLine}>
+                    Day {session.dayIndex}: {session.dayLabel}, {session.timeLabel}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            <Text style={styles.place}>{place}</Text>
+            <Text style={styles.meta}>{meta}</Text>
             {pending ? (
               <>
                 <Banner
                   tone="warn"
-                  text={booking.holdExpiresLabel ? `Complete payment by ${booking.holdExpiresLabel} to keep this space.` : "Payment hasn't been completed."}
+                  text={booking.holdExpiresLabel ? `Complete payment by ${booking.holdExpiresLabel} to keep this place.` : "Payment hasn't been completed."}
                 />
                 <Button label={busy ? "Opening payment…" : `Pay ${booking.priceLabel}`} disabled={busy} onPress={pay} />
               </>
             ) : null}
             {booking.status === "confirmed" ? (
               <View style={styles.block}>
-                <Text style={styles.heading}>Rearrange</Text>
+                <Text style={styles.heading}>{isCourse ? "Move course" : "Rearrange"}</Text>
                 {booking.rescheduleAllowed ? (
-                  <Text style={styles.body}>You can move this lesson until {booking.rescheduleClosesLabel}. You won't be charged again.</Text>
+                  <Text style={styles.body}>
+                    {isCourse
+                      ? `You can move to another open ${booking.course?.days}-day run until ${booking.rescheduleClosesLabel}. You won't be charged again.`
+                      : `You can move this lesson until ${booking.rescheduleClosesLabel}. You won't be charged again.`}
+                  </Text>
                 ) : (
                   <Text style={styles.body}>{booking.rescheduleBlockedReason}</Text>
                 )}
                 <Button
-                  label="Choose a new time"
+                  label={isCourse ? "Choose another run" : "Choose a new time"}
                   variant="secondary"
                   disabled={!booking.rescheduleAllowed}
                   onPress={() => router.push(`/reschedule/${booking.id}`)}
@@ -131,7 +152,9 @@ export default function BookingScreen() {
             {booking.status === "confirmed" ? (
               <View style={styles.block}>
                 <Text style={styles.heading}>Calendar</Text>
-                {booking.calendarSynced ? <Banner tone="ok" text="This lesson is on your Google Calendar. Rearranging it updates the event." /> : null}
+                {booking.calendarSynced ? (
+                  <Banner tone="ok" text={isCourse ? "This course is on your Google Calendar." : "This lesson is on your Google Calendar. Rearranging it updates the event."} />
+                ) : null}
                 {!booking.calendarSynced && calendar?.connected ? (
                   <Button label={busy ? "Syncing…" : "Add to my Google Calendar"} disabled={busy} onPress={sync} />
                 ) : null}
@@ -143,7 +166,7 @@ export default function BookingScreen() {
                   />
                 ) : null}
                 {!calendar?.connected ? (
-                  <Text style={styles.body}>Connect Google Calendar in Account if you want lessons added for you.</Text>
+                  <Text style={styles.body}>Connect Google Calendar in Account if you want bookings added for you.</Text>
                 ) : null}
               </View>
             ) : null}
@@ -158,6 +181,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 40 },
   title: { fontFamily: serif, fontSize: 32, fontWeight: "700", color: colors.ink },
   when: { fontSize: 18, lineHeight: 26, color: colors.ink, fontWeight: "600" },
+  schedule: { gap: 4 },
+  sessionLine: { color: colors.ink, lineHeight: 20 },
   place: { color: colors.muted, lineHeight: 20 },
   meta: { color: colors.ink },
   block: { gap: 10, marginTop: 8 },

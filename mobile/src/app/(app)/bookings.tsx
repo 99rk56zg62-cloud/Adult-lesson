@@ -45,8 +45,8 @@ export default function BookingsScreen() {
         {loading && bookings.length === 0 ? <ActivityIndicator color={colors.pool} style={{ marginTop: 24 }} /> : null}
         {!loading && bookings.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No lessons yet</Text>
-            <Text style={styles.emptyBody}>The schedule shows adult sessions for the next 6 weeks.</Text>
+            <Text style={styles.emptyTitle}>No bookings yet</Text>
+            <Text style={styles.emptyBody}>The schedule shows single lessons and crash courses for the next 6 weeks.</Text>
             <Button label="Browse the schedule" onPress={() => router.push("/schedule")} />
           </View>
         ) : null}
@@ -65,16 +65,23 @@ export default function BookingsScreen() {
 
 function BookingRow({ booking }: { booking: Booking }) {
   const pending = booking.status === "pending_payment";
+  const isCourse = booking.kind === "course";
+  const level = isCourse ? booking.course?.level ?? "Beginners" : booking.slot?.level ?? "Beginners";
+  const title = isCourse ? booking.course?.title ?? "Crash course" : booking.slot?.title ?? "Lesson";
+  const when = isCourse
+    ? `${booking.course?.dateSummary}\n${booking.course?.dailyTimeLabel} daily`
+    : `${booking.slot?.dayLabel}\n${booking.slot?.timeLabel}`;
+  const where = isCourse ? booking.course?.location : booking.slot?.location;
+
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/booking/${booking.id}`)} style={styles.card}>
-      <View style={[styles.bar, { backgroundColor: levelColor(booking.slot.level) }]} />
+      <View style={[styles.bar, { backgroundColor: levelColor(level) }]} />
       <View style={styles.body}>
-        <Text style={styles.kicker}>{pending ? "Payment not finished" : booking.reference}</Text>
-        <Text style={styles.title}>{booking.slot.title}</Text>
+        <Text style={styles.kicker}>{pending ? "Payment not finished" : `${booking.reference}${isCourse ? " · Course" : ""}`}</Text>
+        <Text style={styles.title}>{title}</Text>
         <Text style={styles.meta}>
-          {booking.slot.dayLabel}
-          {"\n"}
-          {booking.slot.timeLabel} · {booking.slot.location}
+          {when}
+          {where ? `\n${where}` : ""}
         </Text>
         {pending && booking.holdExpiresLabel ? <Text style={styles.hold}>Held until {booking.holdExpiresLabel}</Text> : null}
       </View>

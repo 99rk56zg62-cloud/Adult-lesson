@@ -12,9 +12,9 @@ import { openDatabase } from "./db.js";
 import { AppError } from "./errors.js";
 import { createMockPayments, type PaymentProvider, type WebhookVerifier } from "./payments.js";
 import { RESCHEDULE_CUTOFF_MS, lastBookableDay } from "./rules.js";
-import { DEMO_EMAIL, DEMO_PASSWORD, seedDatabase } from "./seed.js";
+import { DEMO_EMAIL, DEMO_PASSWORD, FAREHAM_LOCATION_ID, seedDatabase } from "./seed.js";
 import { fromIso, ZONE } from "./time.js";
-import type { BookingDto, SlotDto } from "./types.js";
+import type { BookingDto, CourseRunDto, SlotDto } from "./types.js";
 
 const baseConfig: AppConfig = {
   port: 0,
@@ -122,10 +122,48 @@ function roomy(slots: SlotDto[]): SlotDto {
   return slot;
 }
 
-async function listSlots(ctx: Ctx, token: string): Promise<SlotDto[]> {
-  const response = await api(ctx.base, "/api/slots", { token });
+async function listSlots(
+  ctx: Ctx,
+  token: string,
+  filters?: { locationId?: string; durationMinutes?: number },
+): Promise<SlotDto[]> {
+  const query = new URLSearchParams();
+  if (filters?.locationId) query.set("locationId", filters.locationId);
+  if (filters?.durationMinutes !== undefined) query.set("durationMinutes", String(filters.durationMinutes));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await api(ctx.base, `/api/slots${suffix}`, { token });
   assert.equal(response.status, 200);
   return response.json.slots as SlotDto[];
+}
+
+async function listCourses(ctx: Ctx, token: string): Promise<CourseRunDto[]> {
+  const response = await api(ctx.base, "/api/courses", { token });
+  assert.equal(response.status, 200);
+  return response.json.courses as CourseRunDto[];
+}
+
+async function payForCourse(ctx: Ctx, token: string, courseRunId: string): Promise<BookingDto> {
+  const created = await api(ctx.base, "/api/bookings", {
+    method: "POST",
+    token,
+    body: { courseRunId, returnUrl: "http://127.0.0.1:9/payment/success" },
+  });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.json.booking.kind, "course");
+  const checkout = new URL(created.json.checkoutUrl as string);
+  const payToken = checkout.searchParams.get("token");
+  assert.ok(payToken);
+  const completed = await api(ctx.base, "/api/payments/mock-complete", {
+    method: "POST",
+    body: { token: payToken },
+  });
+  assert.equal(completed.status, 303);
+  const returned = await api(ctx.base, completed.headers.get("location") ?? "");
+  assert.equal(returned.status, 303);
+  const booking = await api(ctx.base, `/api/bookings/${created.json.booking.id}`, { token });
+  assert.equal(booking.status, 200);
+  assert.equal(booking.json.booking.status, "confirmed");
+  return booking.json.booking as BookingDto;
 }
 
 async function payFor(ctx: Ctx, token: string, slotId: string): Promise<BookingDto> {
@@ -229,13 +267,12 @@ describe("lido api", { concurrency: 1 }, () => {
         headers: { "x-admin-token": "test-admin" },
         body: {
           startsAt: ctx.clock().plus({ days: 3 }).toUTC().toISO(),
-          durationMinutes: 45,
+          locationId: FAREHAM_LOCATION_ID,
+          durationMinutes: 30,
           capacity: 1,
-          pricePence: 2800,
+          pricePence: 2200,
           title: "Admin beginners",
           level: "Beginners",
-          location: "Harbour Pool",
-          address: "Wharf Road, Bristol",
           instructor: "Helen Ward",
           blurb: "A single-spot session used to prove the capacity rule.",
         },
@@ -257,7 +294,7 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.equal(blocked.json.error.code, "SLOT_FULL");
       ctx.setNow(ctx.clock().plus({ minutes: 46 }));
       const booking = await payFor(ctx, second.token, slotId);
-      assert.equal(booking.slot.id, slotId);
+      assert.equal(booking.slot!.id, slotId);
       const late = await api(ctx.base, "/api/payments/mock-complete", {
         method: "POST",
         body: { token: new URL(held.json.checkoutUrl).searchParams.get("token") },
@@ -305,7 +342,7 @@ describe("lido api", { concurrency: 1 }, () => {
         body: { slotId: target.id },
       });
       assert.equal(moved.status, 200, moved.text);
-      assert.equal(moved.json.booking.slot.id, target.id);
+      assert.equal(moved.json.booking.slot!.id, target.id);
       assert.match(moved.json.booking.googleCalendarUrl, /calendar\.google\.com/);
       const after = await listSlots(ctx, token);
       const oldBefore = before.find((slot) => slot.id === later.id)!;
@@ -321,13 +358,12 @@ describe("lido api", { concurrency: 1 }, () => {
         headers: { "x-admin-token": "test-admin" },
         body: {
           startsAt: exactStart,
-          durationMinutes: 45,
+          locationId: FAREHAM_LOCATION_ID,
+          durationMinutes: 30,
           capacity: 4,
-          pricePence: 2800,
+          pricePence: 2200,
           title: "Boundary beginners",
           level: "Beginners",
-          location: "Harbour Pool",
-          address: "Wharf Road, Bristol",
           instructor: "Helen Ward",
           blurb: "Starts exactly 24 hours from the test clock.",
         },
@@ -346,13 +382,12 @@ describe("lido api", { concurrency: 1 }, () => {
         headers: { "x-admin-token": "test-admin" },
         body: {
           startsAt: insideStart,
-          durationMinutes: 45,
+          locationId: FAREHAM_LOCATION_ID,
+          durationMinutes: 30,
           capacity: 4,
-          pricePence: 2800,
+          pricePence: 2200,
           title: "Inside beginners",
           level: "Beginners",
-          location: "Harbour Pool",
-          address: "Wharf Road, Bristol",
           instructor: "Helen Ward",
           blurb: "Starts just inside the 24 hour window.",
         },
@@ -386,7 +421,7 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.equal(bookings.json.bookings[0].paymentSource, "seed");
       assert.equal(bookings.json.bookings[0].rescheduleAllowed, true);
       const slots = await listSlots(ctx, login.json.token);
-      const target = roomy(slots.filter((slot) => slot.id !== bookings.json.bookings[0].slot.id));
+      const target = roomy(slots.filter((slot) => slot.id !== bookings.json.bookings[0].slot!.id));
       const moved = await api(ctx.base, `/api/bookings/${bookings.json.bookings[0].id}/reschedule`, {
         method: "POST",
         token: login.json.token,
@@ -539,16 +574,15 @@ describe("lido api", { concurrency: 1 }, () => {
         method: "POST",
         headers: { "x-admin-token": "test-admin" },
         body: {
+          locationId: FAREHAM_LOCATION_ID,
           weekday: 5,
           hour: 11,
           minute: 0,
-          durationMinutes: 45,
+          durationMinutes: 60,
           capacity: 4,
-          pricePence: 2600,
+          pricePence: 3200,
           title: "Friday gentle lane",
           level: "Confidence",
-          location: "Harbour Pool",
-          address: "Wharf Road, Bristol",
           instructor: "Helen Ward",
           blurb: "A calm Friday session for adults building water confidence.",
         },
@@ -587,6 +621,73 @@ describe("lido api", { concurrency: 1 }, () => {
       });
       assert.equal(form.status, 303);
       assert.match(form.headers.get("set-cookie") ?? "", /lido_admin=/);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("lists Fareham locations and filters single lessons by duration", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      const locations = await api(ctx.base, "/api/locations", { token });
+      assert.equal(locations.status, 200);
+      assert.ok(locations.json.locations.some((location: { name: string }) => location.name.includes("Fareham")));
+
+      const thirty = await listSlots(ctx, token, { durationMinutes: 30 });
+      const sixty = await listSlots(ctx, token, { durationMinutes: 60 });
+      assert.ok(thirty.every((slot) => slot.durationMinutes === 30));
+      assert.ok(sixty.every((slot) => slot.durationMinutes === 60));
+      assert.ok(thirty.length > 0);
+      assert.ok(sixty.length > 0);
+      assert.equal(thirty.some((slot) => sixty.some((other) => other.id === slot.id)), false);
+
+      const config = await api(ctx.base, "/api/config");
+      assert.deepEqual(config.json.lessonDurations, [30, 60]);
+      assert.deepEqual(config.json.courseLengths, [3, 4, 5]);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("books a crash course package and can move to another run of the same length", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      const courses = await listCourses(ctx, token);
+      assert.ok(courses.some((course) => course.days === 3));
+      assert.ok(courses.some((course) => course.days === 4));
+      assert.ok(courses.some((course) => course.days === 5));
+      const threeDay = courses.find((course) => course.days === 3 && course.bookable);
+      assert.ok(threeDay);
+      assert.ok(threeDay.sessions.length === 3);
+      assert.match(threeDay.dailyTimeLabel, /am$/);
+
+      const booked = await payForCourse(ctx, token, threeDay.id);
+      assert.equal(booked.kind, "course");
+      assert.equal(booked.course!.id, threeDay.id);
+      assert.equal(booked.course!.sessions.length, 3);
+
+      const alternate = courses.find((course) => course.days === 3 && course.bookable && course.id !== threeDay.id);
+      if (alternate) {
+        const moved = await api(ctx.base, `/api/bookings/${booked.id}/reschedule`, {
+          method: "POST",
+          token,
+          body: { courseRunId: alternate.id },
+        });
+        assert.equal(moved.status, 200, moved.text);
+        assert.equal(moved.json.booking.course!.id, alternate.id);
+      }
+
+      const wrongLength = courses.find((course) => course.days === 4 && course.bookable);
+      if (wrongLength) {
+        const blocked = await api(ctx.base, `/api/bookings/${booked.id}/reschedule`, {
+          method: "POST",
+          token,
+          body: { courseRunId: wrongLength.id },
+        });
+        assert.equal(blocked.status, 400);
+      }
     } finally {
       await ctx.close();
     }
