@@ -164,12 +164,60 @@ export function seedDatabase(
   }
 }
 
+export const FAREHAM_LOCATION_NAME = "Swim School Academy Fareham";
+export const FAREHAM_LOCATION_ADDRESS = "153 West Street, Fareham PO16 0DZ";
+export const FAREHAM_LATITUDE = 50.85255;
+export const FAREHAM_LONGITUDE = -1.18501;
+export const FAREHAM_ARRIVAL_INSTRUCTIONS = [
+  "1. Head to the shop on the high street: 153 West Street – Swim School Academy Fareham.",
+  "2. Enter the property and pop your shoes off.",
+  "3. Go through the grey door to the changing rooms and get changed.",
+  "4. Use a box to store your belongings and take it onto poolside with you.",
+  "5. When the lesson before yours has finished, you'll find your teacher in the pool waiting for you.",
+].join("\n");
+
 function ensureFarehamLocation(db: DatabaseSync, now: DateTime) {
   const stamp = toUtcIso(now);
   db.prepare(
-    `INSERT OR IGNORE INTO locations (id, name, address, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, 1, ?, ?)`,
-  ).run(FAREHAM_LOCATION_ID, "West Street Fareham", "153 West Street, Fareham PO16 0EL", stamp, stamp);
+    `INSERT OR IGNORE INTO locations (
+      id, name, address, enabled, created_at, updated_at, arrival_instructions, latitude, longitude
+    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+  ).run(
+    FAREHAM_LOCATION_ID,
+    FAREHAM_LOCATION_NAME,
+    FAREHAM_LOCATION_ADDRESS,
+    stamp,
+    stamp,
+    FAREHAM_ARRIVAL_INSTRUCTIONS,
+    FAREHAM_LATITUDE,
+    FAREHAM_LONGITUDE,
+  );
+  db.prepare(
+    `UPDATE locations
+     SET name = ?, address = ?, latitude = ?, longitude = ?,
+         arrival_instructions = CASE
+           WHEN arrival_instructions IS NULL OR trim(arrival_instructions) = '' THEN ?
+           ELSE arrival_instructions
+         END
+     WHERE id = ?`,
+  ).run(
+    FAREHAM_LOCATION_NAME,
+    FAREHAM_LOCATION_ADDRESS,
+    FAREHAM_LATITUDE,
+    FAREHAM_LONGITUDE,
+    FAREHAM_ARRIVAL_INSTRUCTIONS,
+    FAREHAM_LOCATION_ID,
+  );
+  db.prepare(`UPDATE slots SET location = ?, address = ? WHERE location_id = ?`).run(
+    FAREHAM_LOCATION_NAME,
+    FAREHAM_LOCATION_ADDRESS,
+    FAREHAM_LOCATION_ID,
+  );
+  db.prepare(`UPDATE course_runs SET location = ?, address = ? WHERE location_id = ?`).run(
+    FAREHAM_LOCATION_NAME,
+    FAREHAM_LOCATION_ADDRESS,
+    FAREHAM_LOCATION_ID,
+  );
 }
 
 function seedWindows(db: DatabaseSync, now: DateTime) {

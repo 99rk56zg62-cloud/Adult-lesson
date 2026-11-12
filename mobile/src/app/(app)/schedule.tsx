@@ -7,7 +7,7 @@ import { BookingCalendar } from "@/components/booking-calendar";
 import { LengthButtons, TimeGrid } from "@/components/lesson-times";
 import { Banner, TopBar } from "@/components/ui";
 import { colors, heading, strong } from "@/theme";
-import type { CourseRun, DayAvailability, Location, Slot } from "@/types";
+import type { DayAvailability, Location, Slot } from "@/types";
 
 export default function ScheduleScreen() {
   const { config } = useAuth();
@@ -16,7 +16,6 @@ export default function ScheduleScreen() {
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [partySize, setPartySize] = useState<number>(1);
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [courses, setCourses] = useState<CourseRun[]>([]);
   const [days, setDays] = useState<DayAvailability[]>([]);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -30,10 +29,9 @@ export default function ScheduleScreen() {
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [locationResult, schedule, courseResult, basket] = await Promise.all([
+      const [locationResult, schedule, basket] = await Promise.all([
         api.locations(),
         api.slots({ locationId: locationId ?? undefined }),
-        api.courses({ locationId: locationId ?? undefined, partySize }),
         api.basket(),
       ]);
       setBasketCount(basket.items.length);
@@ -45,7 +43,6 @@ export default function ScheduleScreen() {
         return (fareham ?? locationResult.locations[0])?.id ?? null;
       });
       setSlots(schedule.slots);
-      setCourses(courseResult.courses);
       setDays(schedule.days);
       setWindowLabel(schedule.windowEndsLabel);
       setError(null);
@@ -56,7 +53,7 @@ export default function ScheduleScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [locationId, partySize]);
+  }, [locationId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -97,7 +94,7 @@ export default function ScheduleScreen() {
         contentContainerStyle={styles.content}
       >
         {error ? <Banner tone="danger" text={error} /> : null}
-        {loading && slots.length === 0 && courses.length === 0 ? (
+        {loading && slots.length === 0 ? (
           <ActivityIndicator color={colors.pool} style={{ marginTop: 24 }} />
         ) : null}
 
@@ -172,25 +169,38 @@ export default function ScheduleScreen() {
           <Text style={styles.empty}>Choose a highlighted date. Grey dates have nothing free.</Text>
         )}
 
-        {courses.length > 0 ? (
-          <View style={styles.courseBlock}>
-            <Text style={styles.sectionTitle}>Crash courses</Text>
-            <Text style={styles.sectionSub}>
-              {config?.courseDailyMinutes ?? 90} minutes each morning ({config?.courseMorningWindow.startHour ?? 6}:00–
-              {config?.courseMorningWindow.endHour ?? 9}:00 UK). Book the whole run.
-            </Text>
-            {courses.map((course) => (
-              <CourseRow
-                key={course.id}
-                course={course}
-                onPress={() => course.bookable && router.push({ pathname: "/course/[id]", params: { id: course.id } })}
-              />
-            ))}
-          </View>
-        ) : null}
+        <View style={styles.courseBlock}>
+          <Text style={styles.sectionTitle}>Crash courses</Text>
+          <Text style={styles.sectionSub}>
+            {config?.courseDailyMinutes ?? 90} minutes each day. We'll suggest the next free mornings, and you can change any day.
+          </Text>
+          {(config?.coursePrices ?? [
+            { days: 3, priceLabel: "£349.00" },
+            { days: 4, priceLabel: "£449.00" },
+            { days: 5, priceLabel: "£549.00" },
+          ]).map((course) => (
+            <Pressable
+              key={course.days}
+              accessibilityRole="button"
+              onPress={() =>
+                router.push({ pathname: "/course/plan", params: { days: String(course.days), locationId: locationId ?? "" } } as never)
+              }
+              style={styles.timeRow}
+            >
+              <View style={[styles.bar, { backgroundColor: colors.pool }]} />
+              <View style={styles.timeBody}>
+                <Text style={styles.time}>{course.days}-day course</Text>
+                <Text style={styles.meta}>90 minutes each day</Text>
+              </View>
+              <View style={styles.side}>
+                <Text style={styles.price}>{course.priceLabel}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
 
         <Text style={styles.note}>
-          Single lessons can be booked up to 6 weeks ahead and rearranged until 24 hours before they start. Crash courses lock the same way — until 24 hours before day one.
+          Single lessons can be booked up to 6 weeks ahead and rearranged until 24 hours before they start. Each day of a crash course can be moved until 24 hours before that day.
         </Text>
       </ScrollView>
       {basketCount > 0 ? (
@@ -209,32 +219,6 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={[styles.chip, selected && styles.chipSelected]}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function CourseRow({ course, onPress }: { course: CourseRun; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={!course.bookable}
-      onPress={onPress}
-      style={[styles.timeRow, !course.bookable && styles.timeDisabled]}
-    >
-      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
-      <View style={styles.timeBody}>
-        <Text style={styles.time}>{course.days}-day course</Text>
-        <Text style={styles.title}>{course.title}</Text>
-        <Text style={styles.meta}>
-          {course.dateSummary} · {course.dailyTimeLabel} daily
-        </Text>
-      </View>
-      <View style={styles.side}>
-        <Text style={styles.price}>{course.priceLabel}</Text>
-        <Text style={[styles.spots, !course.bookable && styles.gone]}>
-          {course.bookable ? course.partyLabel : course.spotsLeft === 0 ? "Booked" : course.unavailableReason ?? "Unavailable"}
-        </Text>
-      </View>
     </Pressable>
   );
 }

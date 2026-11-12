@@ -77,6 +77,9 @@ export function presentLocation(row: LocationRow): LocationDto {
     name: row.name,
     address: row.address,
     enabled: Number(row.enabled) !== 0,
+    arrivalInstructions: row.arrival_instructions ?? "",
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
   };
 }
 
@@ -179,17 +182,21 @@ export function presentCourseProduct(product: CourseProductRow, location: Locati
   };
 }
 
-export function presentCourseSession(row: CourseSessionRow): CourseSessionDto {
+export function presentCourseSession(row: CourseSessionRow, now?: DateTime): CourseSessionDto {
   const startsAt = fromIso(row.starts_at);
   const endsAt = fromIso(row.ends_at);
   const local = startsAt.setZone(ZONE);
+  const decision = now ? getRescheduleBlock(startsAt, now) : null;
   return {
+    id: row.id,
     dayIndex: row.day_index,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     dayLabel: local.toFormat("cccc d LLLL"),
     timeLabel: `${clockLabel(local)}–${clockLabel(endsAt)}`,
     dateKey: local.toFormat("yyyy-MM-dd"),
+    movable: decision?.ok ?? false,
+    moveBlockedReason: decision && !decision.ok ? decision.message : null,
   };
 }
 
@@ -200,7 +207,7 @@ export function presentCourseRun(
   now: DateTime,
 ): CourseRunDto {
   const ordered = [...sessions].sort((a, b) => a.day_index - b.day_index);
-  const sessionDtos = ordered.map(presentCourseSession);
+  const sessionDtos = ordered.map((row) => presentCourseSession(row, now));
   const firstStarts = fromIso(ordered[0]?.starts_at ?? run.first_date);
   const lastEnds = fromIso(ordered[ordered.length - 1]?.ends_at ?? run.first_date);
   const firstLocal = firstStarts.setZone(ZONE);
@@ -276,9 +283,12 @@ export function presentBooking(
   if (kind === "course" && "run" in details) {
     const course = presentCourseRun(details.run, details.sessions, details.occupied, now);
     const firstStarts = fromIso(course.startsAt);
+    const movableSession = course.sessions.find((session) => session.movable);
     const decision = getRescheduleBlock(firstStarts, now);
-    let rescheduleAllowed = booking.status === "confirmed" && decision.ok;
-    let rescheduleBlockedReason = decision.ok ? null : decision.message;
+    let rescheduleAllowed = booking.status === "confirmed" && Boolean(movableSession);
+    let rescheduleBlockedReason = movableSession
+      ? null
+      : (course.sessions.find((session) => session.moveBlockedReason)?.moveBlockedReason ?? "You can move a lesson until 24 hours before it starts.");
     if (booking.status === "pending_payment") {
       rescheduleAllowed = false;
       rescheduleBlockedReason = "Finish payment before moving this course.";

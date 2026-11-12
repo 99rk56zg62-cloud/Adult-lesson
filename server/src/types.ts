@@ -16,6 +16,9 @@ export type LocationRow = {
   name: string;
   address: string;
   enabled: number;
+  arrival_instructions: string | null;
+  latitude: number | null;
+  longitude: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -134,6 +137,9 @@ export type LocationDto = {
   name: string;
   address: string;
   enabled: boolean;
+  arrivalInstructions: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type SlotDto = {
@@ -203,12 +209,15 @@ export type AvailabilityRuleDto = {
 };
 
 export type CourseSessionDto = {
+  id: string;
   dayIndex: number;
   startsAt: string;
   endsAt: string;
   dayLabel: string;
   timeLabel: string;
   dateKey: string;
+  movable: boolean;
+  moveBlockedReason: string | null;
 };
 
 export type CourseRunDto = {
@@ -294,6 +303,7 @@ export type PublicConfig = {
   lessonDurations: number[];
   lessonPrices: { durationMinutes: number; pricePence: number; priceLabel: string }[];
   courseLengths: number[];
+  coursePrices: { days: number; pricePence: number; priceLabel: string }[];
   courseDailyMinutes: number;
   courseMorningWindow: { startHour: number; endHour: number };
   demoLogin: { email: string; password: string; name: string } | null;

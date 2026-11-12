@@ -16,6 +16,7 @@ export type PublicConfig = {
   lessonDurations: number[];
   lessonPrices: { durationMinutes: number; pricePence: number; priceLabel: string }[];
   courseLengths: number[];
+  coursePrices: { days: number; pricePence: number; priceLabel: string }[];
   courseDailyMinutes: number;
   courseMorningWindow: { startHour: number; endHour: number };
   adminUrl: string | null;
@@ -27,6 +28,9 @@ export type Location = {
   name: string;
   address: string;
   enabled: boolean;
+  arrivalInstructions: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type DayAvailability = {
@@ -73,12 +77,30 @@ export type Slot = {
 };
 
 export type CourseSession = {
+  id: string;
   dayIndex: number;
   startsAt: string;
   endsAt: string;
   dayLabel: string;
   timeLabel: string;
   dateKey: string;
+  movable: boolean;
+  moveBlockedReason: string | null;
+};
+
+export type PlannedSession = {
+  dateKey: string;
+  hour: number;
+  minute: number;
+  startsAt: string;
+  endsAt: string;
+  dayLabel: string;
+  timeLabel: string;
+};
+
+export type CourseSuggestion = {
+  label: string;
+  sessions: PlannedSession[];
 };
 
 export type CourseRun = {

@@ -53,7 +53,7 @@ export default function BasketScreen() {
 
   return (
     <Phone>
-      <TopBar title="Basket" subtitle="One payment covers every lesson." back />
+      <TopBar title="Basket" subtitle="One payment covers every lesson and any crash course." back />
       {items.length === 0 && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 24 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.meta}>{BOOKING_POLICY}</Text>
@@ -61,14 +61,16 @@ export default function BasketScreen() {
         {items.map((item) => (
           <View key={item.id} style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.when}>{item.slot?.dayLabel}</Text>
+              <Text style={styles.when}>{item.kind === "course" ? item.course?.title : item.slot?.dayLabel}</Text>
               <Text style={styles.meta}>
-                {item.slot?.startTimeLabel} · {item.slot?.durationMinutes} min · {item.slot?.partyLabel}
+                {item.kind === "course"
+                  ? item.course?.sessions.map((session) => `${session.dayLabel.split(" ").slice(0, 2).join(" ")} ${session.timeLabel}`).join("\n")
+                  : `${item.slot?.startTimeLabel} · ${item.slot?.durationMinutes} min · ${item.slot?.partyLabel}`}
               </Text>
             </View>
             <View style={{ alignItems: "flex-end", gap: 6 }}>
               <Text style={styles.price}>{item.priceLabel}</Text>
-              <Button label="Remove" variant="secondary" onPress={() => void api.removeFromBasket(item.slot?.id ?? "").then(load)} />
+              <Button label="Remove" variant="secondary" onPress={() => void api.removeBasketBooking(item.id).then(load)} />
             </View>
           </View>
         ))}

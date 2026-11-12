@@ -21,7 +21,7 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
     level: "",
     blurb: "A first stroke.",
     location: "West Street Fareham",
-    address: "153 West Street, Fareham PO16 0EL",
+    address: "153 West Street, Fareham PO16 0DZ",
     instructor: "Sam Okonkwo",
     enabled: 1,
     cancelled: 0,
@@ -58,14 +58,19 @@ test("formats London labels, week buckets, and a Google Calendar template", () =
 test("presents a location row", () => {
   const row: LocationRow = {
     id: "loc_fareham",
-    name: "West Street Fareham",
-    address: "153 West Street, Fareham PO16 0EL",
+    name: "Swim School Academy Fareham",
+    address: "153 West Street, Fareham PO16 0DZ",
     enabled: 1,
+    arrival_instructions: "1. Head to the shop.",
+    latitude: 50.85255,
+    longitude: -1.18501,
     created_at: "2026-09-21T12:00:00.000Z",
     updated_at: "2026-09-21T12:00:00.000Z",
   };
   const location = presentLocation(row);
   assert.equal(location.id, "loc_fareham");
-  assert.equal(location.name, "West Street Fareham");
+  assert.equal(location.name, "Swim School Academy Fareham");
+  assert.equal(location.address, "153 West Street, Fareham PO16 0DZ");
+  assert.match(location.arrivalInstructions, /Head to the shop/);
   assert.equal(location.enabled, true);
 });

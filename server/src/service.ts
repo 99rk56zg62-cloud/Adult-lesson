@@ -17,6 +17,7 @@ import { DateTime } from "luxon";
 import {
   COURSE_DAILY_MINUTES,
   COURSE_LENGTHS,
+  COURSE_PACKAGE_PRICES,
   COURSE_MORNING_END_HOUR,
   COURSE_MORNING_START_HOUR,
   LESSON_DURATIONS,
@@ -32,6 +33,7 @@ import {
 } from "./availability.js";
 import { hashPassword, readOAuthState, signAccessToken, signOAuthState, verifyPassword } from "./auth.js";
 import type { CalendarGateway } from "./calendar.js";
+import { assertCourseSessions, assertSessionOpen, listCourseDayOptions, suggestCrashCourses, type SessionChoice } from "./course-plans.js";
 import type { AppConfig } from "./config.js";
 import { getRow, getRows, isUniqueError, withTransaction } from "./db.js";
 import { AppError } from "./errors.js";
@@ -146,6 +148,31 @@ export function createService(deps: ServiceDeps) {
     return getRows<CourseSessionRow>(
       db,
       `SELECT * FROM course_sessions WHERE run_id = ? ORDER BY day_index`,
+      runId,
+    );
+  }
+
+  function defaultLocation(): LocationRow {
+    const fareham = getRow<LocationRow>(db, `SELECT * FROM locations WHERE id = ? AND enabled = 1`, FAREHAM_LOCATION_ID);
+    if (fareham) return fareham;
+    const first = getRow<LocationRow>(db, `SELECT * FROM locations WHERE enabled = 1 ORDER BY name LIMIT 1`);
+    if (!first) throw new AppError(409, "SLOT_UNAVAILABLE", "No pool is open for booking.");
+    return first;
+  }
+
+  function renumberCourseSessions(runId: string) {
+    const sessions = [...courseSessions(runId)].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    db.prepare(`UPDATE course_sessions SET day_index = day_index + 100 WHERE run_id = ?`).run(runId);
+    sessions.forEach((session, index) => {
+      db.prepare(`UPDATE course_sessions SET day_index = ? WHERE id = ?`).run(index + 1, session.id);
+    });
+    const first = sessions[0];
+    if (!first) return;
+    const local = fromIso(first.starts_at).setZone(ZONE);
+    db.prepare(`UPDATE course_runs SET first_date = ?, daily_hour = ?, daily_minute = ? WHERE id = ?`).run(
+      local.toFormat("yyyy-MM-dd"),
+      local.hour,
+      local.minute,
       runId,
     );
   }
@@ -365,13 +392,19 @@ export function createService(deps: ServiceDeps) {
         const run = requireCourseRun(booking.course_run_id);
         const sessions = courseSessions(run.id);
         const first = sessions[0];
-        const last = sessions[sessions.length - 1];
-        if (!first || !last) return null;
+        if (!first) return null;
         summary = `Crash course — ${run.title}`;
-        description = `${BUSINESS_NAME} booking ${booking.reference}. ${run.days}-day adult crash course with ${run.instructor}.`;
+        const dayLines = sessions
+          .map((session) => {
+            const starts = fromIso(session.starts_at).setZone(ZONE);
+            const ends = fromIso(session.ends_at).setZone(ZONE);
+            return `${starts.toFormat("cccc d LLLL")}, ${starts.toFormat("h:mma").toLowerCase()}–${ends.toFormat("h:mma").toLowerCase()}`;
+          })
+          .join("\n");
+        description = `${BUSINESS_NAME} booking ${booking.reference}. ${run.days}-day adult crash course with ${run.instructor}.\n${dayLines}`;
         location = `${run.location}, ${run.address}`;
         startsAt = fromIso(first.starts_at);
-        endsAt = fromIso(last.ends_at);
+        endsAt = fromIso(first.ends_at);
       } else if (booking.slot_id) {
         const slot = requireSlot(booking.slot_id);
         summary = `Swimming lesson — ${slot.title}`;
@@ -413,6 +446,11 @@ export function createService(deps: ServiceDeps) {
         lessonDurations: [...LESSON_DURATIONS],
         lessonPrices: listLessonRates(db, nowIso()),
         courseLengths: [...COURSE_LENGTHS],
+        coursePrices: COURSE_LENGTHS.map((days) => ({
+          days,
+          pricePence: COURSE_PACKAGE_PRICES[days],
+          priceLabel: formatGBP(COURSE_PACKAGE_PRICES[days]),
+        })),
         courseDailyMinutes: COURSE_DAILY_MINUTES,
         courseMorningWindow: { startHour: COURSE_MORNING_START_HOUR, endHour: COURSE_MORNING_END_HOUR },
         demoLogin: config.exposeDemoLogin
@@ -1022,29 +1060,64 @@ export function createService(deps: ServiceDeps) {
       return getRows<LocationRow>(db, `SELECT * FROM locations ORDER BY name`).map(presentLocation);
     },
 
-    createAdminLocation(input: { name: string; address: string; enabled?: boolean }): LocationDto {
+    createAdminLocation(input: {
+      name: string;
+      address: string;
+      enabled?: boolean;
+      arrivalInstructions?: string;
+      latitude?: number | null;
+      longitude?: number | null;
+    }): LocationDto {
       const id = randomUUID();
       const stamp = nowIso();
       db.prepare(
-        `INSERT INTO locations (id, name, address, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(id, input.name.trim(), input.address.trim(), input.enabled === false ? 0 : 1, stamp, stamp);
+        `INSERT INTO locations (
+          id, name, address, enabled, created_at, updated_at, arrival_instructions, latitude, longitude
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        input.name.trim(),
+        input.address.trim(),
+        input.enabled === false ? 0 : 1,
+        stamp,
+        stamp,
+        input.arrivalInstructions?.trim() ?? "",
+        input.latitude ?? null,
+        input.longitude ?? null,
+      );
       return presentLocation(requireLocation(id));
     },
 
     updateAdminLocation(
       locationId: string,
-      input: { name?: string; address?: string; enabled?: boolean },
+      input: {
+        name?: string;
+        address?: string;
+        enabled?: boolean;
+        arrivalInstructions?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+      },
     ): LocationDto {
       const location = requireLocation(locationId);
+      const name = input.name?.trim() ?? location.name;
+      const address = input.address?.trim() ?? location.address;
       db.prepare(
-        `UPDATE locations SET name = ?, address = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE locations
+         SET name = ?, address = ?, enabled = ?, arrival_instructions = ?, latitude = ?, longitude = ?, updated_at = ?
+         WHERE id = ?`,
       ).run(
-        input.name?.trim() ?? location.name,
-        input.address?.trim() ?? location.address,
+        name,
+        address,
         input.enabled === undefined ? location.enabled : input.enabled ? 1 : 0,
+        input.arrivalInstructions === undefined ? location.arrival_instructions : input.arrivalInstructions.trim(),
+        input.latitude === undefined ? location.latitude : input.latitude,
+        input.longitude === undefined ? location.longitude : input.longitude,
         nowIso(),
         locationId,
       );
+      db.prepare(`UPDATE slots SET location = ?, address = ? WHERE location_id = ?`).run(name, address, locationId);
+      db.prepare(`UPDATE course_runs SET location = ?, address = ? WHERE location_id = ?`).run(name, address, locationId);
       return presentLocation(requireLocation(locationId));
     },
 
@@ -1328,13 +1401,168 @@ export function createService(deps: ServiceDeps) {
       return presentCourseRun(fresh, courseSessions(fresh.id), countCourseOccupied(fresh.id, ""), clock());
     },
 
+    courseSuggestions(userId: string, input: { days: number; locationId?: string; partySize?: number }) {
+      requireUser(userId);
+      expireStale();
+      assertCourseDays(input.days);
+      if (input.partySize !== undefined && input.partySize !== 1 && input.partySize !== 2) {
+        throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
+      }
+      const location = input.locationId ? requireLocation(input.locationId) : defaultLocation();
+      return suggestCrashCourses(db, clock(), { locationId: location.id, days: input.days as 3 | 4 | 5 });
+    },
+
+    courseDayOptions(userId: string, input: { locationId?: string; excludeDateKeys?: string[] }) {
+      requireUser(userId);
+      expireStale();
+      const location = input.locationId ? requireLocation(input.locationId) : defaultLocation();
+      return {
+        locationId: location.id,
+        sessions: listCourseDayOptions(db, clock(), { locationId: location.id, excludeDateKeys: input.excludeDateKeys }),
+      };
+    },
+
+    addCourseToBasket(
+      userId: string,
+      input: { days: number; locationId?: string; partySize?: number; sessions: SessionChoice[] },
+    ) {
+      const user = requireUser(userId);
+      expireStale();
+      assertCourseDays(input.days);
+      const party = input.partySize ?? 1;
+      if (party !== 1 && party !== 2) throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
+      const location = input.locationId ? requireLocation(input.locationId) : defaultLocation();
+      if (!location.enabled) throw new AppError(409, "SLOT_UNAVAILABLE", "This pool isn't taking bookings.");
+      const product = getRow<{ id: string; blurb: string; instructor: string }>(
+        db,
+        `SELECT id, blurb, instructor FROM course_products WHERE days = ? AND enabled = 1 ORDER BY id LIMIT 1`,
+        input.days,
+      );
+      if (!product) throw new AppError(409, "COURSE_UNAVAILABLE", "Crash courses aren't set up yet.");
+      const price = COURSE_PACKAGE_PRICES[input.days as 3 | 4 | 5];
+      const resolved = assertCourseSessions(db, clock(), {
+        locationId: location.id,
+        days: input.days,
+        sessions: input.sessions,
+      });
+      withTransaction(db, () => {
+        const again = assertCourseSessions(db, clock(), {
+          locationId: location.id,
+          days: input.days,
+          sessions: input.sessions,
+        });
+        const runId = randomUUID();
+        const stamp = nowIso();
+        const first = again[0]!;
+        db.prepare(
+          `INSERT INTO course_runs (
+            id, product_id, location_id, first_date, daily_hour, daily_minute, days, daily_minutes,
+            capacity, price_pence, title, level, blurb, instructor, location, address, enabled, cancelled, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, 1, 0, ?)`,
+        ).run(
+          runId,
+          product.id,
+          location.id,
+          first.dateKey,
+          first.hour,
+          first.minute,
+          input.days,
+          COURSE_DAILY_MINUTES,
+          party,
+          price,
+          `${input.days}-day crash course`,
+          product.blurb,
+          product.instructor,
+          location.name,
+          location.address,
+          stamp,
+        );
+        const insertSession = db.prepare(
+          `INSERT INTO course_sessions (id, run_id, day_index, starts_at, ends_at) VALUES (?, ?, ?, ?, ?)`,
+        );
+        again.forEach((session, index) => {
+          insertSession.run(randomUUID(), runId, index + 1, session.startsAt, session.endsAt);
+        });
+        db.prepare(
+          `INSERT INTO bookings (
+            id, reference, user_id, kind, slot_id, course_run_id, status, hold_expires_at, price_pence,
+            stripe_session_id, stripe_payment_intent, payment_source, return_url,
+            calendar_event_id, created_at, confirmed_at, rescheduled_at
+          ) VALUES (?, ?, ?, 'course', NULL, ?, 'pending_payment', ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL)`,
+        ).run(randomUUID(), makeReference(db), user.id, runId, toUtcIso(clock().plus({ milliseconds: HOLD_MS })), price, stamp);
+      });
+      return this.basket(userId);
+    },
+
+    async rescheduleCourseSession(
+      userId: string,
+      bookingId: string,
+      sessionId: string,
+      choice: SessionChoice,
+    ): Promise<MutationResult> {
+      requireUser(userId);
+      const booking = requireOwned(userId, bookingId);
+      if (booking.kind !== "course" || !booking.course_run_id) {
+        throw new AppError(400, "VALIDATION", "This booking isn't a crash course.");
+      }
+      if (booking.status !== "confirmed") {
+        throw new AppError(409, "RESCHEDULE_NOT_CONFIRMED", "Finish payment before moving this course.");
+      }
+      const run = requireCourseRun(booking.course_run_id);
+      const current = courseSessions(run.id).find((session) => session.id === sessionId);
+      if (!current) throw new AppError(404, "NOT_FOUND", "That course day doesn't exist.");
+      const decision = getRescheduleBlock(fromIso(current.starts_at), clock());
+      if (!decision.ok) throw new AppError(409, decision.code, decision.message);
+      const others = courseSessions(run.id).filter((session) => session.id !== sessionId);
+      if (others.some((session) => fromIso(session.starts_at).setZone(ZONE).toFormat("yyyy-MM-dd") === choice.dateKey)) {
+        throw new AppError(400, "VALIDATION", "Each day of the course has to be a different date.");
+      }
+      const next = assertSessionOpen(db, clock(), run.location_id, choice, booking.id);
+      if (others.some((session) => overlapsSession(session.starts_at, session.ends_at, next.startsAt, next.endsAt))) {
+        throw new AppError(409, "SLOT_OVERLAP", "That time overlaps another day of this course.");
+      }
+      if (next.startsAt === current.starts_at) throw new AppError(400, "VALIDATION", "Choose a different day.");
+
+      withTransaction(db, () => {
+        const again = requireOwned(userId, bookingId);
+        if (again.status !== "confirmed" || again.course_run_id !== run.id) {
+          throw new AppError(409, "RESCHEDULE_NOT_CONFIRMED", "Finish payment before moving this course.");
+        }
+        const currentAgain = courseSessions(run.id).find((session) => session.id === sessionId);
+        if (!currentAgain) throw new AppError(404, "NOT_FOUND", "That course day doesn't exist.");
+        const decisionAgain = getRescheduleBlock(fromIso(currentAgain.starts_at), clock());
+        if (!decisionAgain.ok) throw new AppError(409, decisionAgain.code, decisionAgain.message);
+        const moved = assertSessionOpen(db, clock(), run.location_id, choice, again.id);
+        const siblings = courseSessions(run.id).filter((session) => session.id !== sessionId);
+        if (siblings.some((session) => fromIso(session.starts_at).setZone(ZONE).toFormat("yyyy-MM-dd") === choice.dateKey)) {
+          throw new AppError(400, "VALIDATION", "Each day of the course has to be a different date.");
+        }
+        if (siblings.some((session) => overlapsSession(session.starts_at, session.ends_at, moved.startsAt, moved.endsAt))) {
+          throw new AppError(409, "SLOT_OVERLAP", "That time overlaps another day of this course.");
+        }
+        db.prepare(`UPDATE course_sessions SET starts_at = ?, ends_at = ? WHERE id = ?`).run(moved.startsAt, moved.endsAt, sessionId);
+        renumberCourseSessions(run.id);
+        const stamp = nowIso();
+        db.prepare(`UPDATE bookings SET rescheduled_at = ? WHERE id = ?`).run(stamp, again.id);
+        db.prepare(
+          `INSERT INTO booking_events (id, booking_id, type, from_course_run_id, to_course_run_id, created_at)
+           VALUES (?, ?, 'rescheduled', ?, ?, ?)`,
+        ).run(randomUUID(), again.id, run.id, run.id, stamp);
+      });
+
+      const movedBooking = requireOwned(userId, bookingId);
+      const calendarSyncError = await syncCalendar(movedBooking);
+      return { booking: toBookingDto(requireOwned(userId, bookingId)), calendarSyncError, returnUrl: movedBooking.return_url };
+    },
+
     basket(userId: string) {
       requireUser(userId);
       expireStale();
       const rows = getRows<BookingRow>(
         db,
         `SELECT * FROM bookings
-         WHERE user_id = ? AND kind = 'lesson' AND status = 'pending_payment' AND hold_expires_at > ?
+         WHERE user_id = ? AND status = 'pending_payment' AND hold_expires_at > ?
+           AND kind IN ('lesson', 'course')
          ORDER BY created_at`,
         userId,
         nowIso(),
@@ -1388,6 +1616,14 @@ export function createService(deps: ServiceDeps) {
       return this.basket(userId);
     },
 
+    removeBasketBooking(userId: string, bookingId: string) {
+      const booking = requireOwned(userId, bookingId);
+      if (booking.status === "pending_payment") {
+        db.prepare(`UPDATE bookings SET status = 'expired' WHERE id = ?`).run(booking.id);
+      }
+      return this.basket(userId);
+    },
+
     async checkoutBasket(userId: string, returnUrl: string): Promise<CheckoutResult> {
       const user = requireUser(userId);
       assertReturnUrl(returnUrl);
@@ -1395,13 +1631,30 @@ export function createService(deps: ServiceDeps) {
       const rows = getRows<BookingRow>(
         db,
         `SELECT * FROM bookings
-         WHERE user_id = ? AND kind = 'lesson' AND status = 'pending_payment' AND hold_expires_at > ?
+         WHERE user_id = ? AND status = 'pending_payment' AND hold_expires_at > ?
+           AND kind IN ('lesson', 'course')
          ORDER BY created_at`,
         userId,
         nowIso(),
       );
       if (rows.length === 0) throw new AppError(400, "VALIDATION", "Your basket is empty.");
+      const holdUntil = toUtcIso(clock().plus({ milliseconds: HOLD_MS }));
       for (const row of rows) {
+        if (row.kind === "course" && row.course_run_id) {
+          const run = requireCourseRun(row.course_run_id);
+          const sessions = courseSessions(run.id).map((session) => {
+            const local = fromIso(session.starts_at).setZone(ZONE);
+            return { dateKey: local.toFormat("yyyy-MM-dd"), hour: local.hour, minute: local.minute };
+          });
+          assertCourseSessions(db, clock(), {
+            locationId: run.location_id,
+            days: run.days,
+            sessions,
+            exceptBookingId: row.id,
+          });
+          db.prepare(`UPDATE bookings SET return_url = ?, hold_expires_at = ? WHERE id = ?`).run(returnUrl, holdUntil, row.id);
+          continue;
+        }
         const slot = requireSlot(row.slot_id!);
         assertSlotBookable(slot);
         const block = getBookingBlock(fromIso(slot.starts_at), clock());
@@ -1411,13 +1664,20 @@ export function createService(deps: ServiceDeps) {
         db.prepare(`UPDATE bookings SET price_pence = ?, return_url = ?, hold_expires_at = ? WHERE id = ?`).run(
           price,
           returnUrl,
-          toUtcIso(clock().plus({ milliseconds: HOLD_MS })),
+          holdUntil,
           row.id,
         );
       }
       const fresh = rows.map((row) => getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, row.id)!);
       const lines = fresh.map((row) => {
         const presented = toBookingDto(row);
+        if (row.kind === "course" && presented.course) {
+          return {
+            title: presented.course.title,
+            description: presented.course.sessions.map((session) => `${session.dayLabel} ${session.timeLabel}`).join("; "),
+            amountPence: row.price_pence,
+          };
+        }
         return {
           title: `${presented.slot?.durationMinutes ?? ""} min lesson`,
           description: `${presented.slot?.dayLabel ?? ""} ${presented.slot?.startTimeLabel ?? ""} · ${presented.slot?.partyLabel ?? ""}`,
@@ -1428,7 +1688,7 @@ export function createService(deps: ServiceDeps) {
       const session = await payments.createCheckout({
         bookingId: fresh[0]!.id,
         amountPence: total,
-        title: fresh.length === 1 ? lines[0]!.title : `${fresh.length} swimming lessons`,
+        title: fresh.length === 1 ? lines[0]!.title : `${fresh.length} bookings`,
         description: lines.map((line) => line.description).join("; "),
         customerEmail: user.email,
         reference: fresh.map((row) => row.reference).join(", "),
@@ -1486,6 +1746,12 @@ export function createService(deps: ServiceDeps) {
       }));
     },
   };
+}
+
+function overlapsSession(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  const start = fromIso(bStart).toMillis();
+  const end = fromIso(bEnd).toMillis();
+  return start < fromIso(aEnd).toMillis() && end > fromIso(aStart).toMillis();
 }
 
 function assertPartyCapacity(capacity: number) {

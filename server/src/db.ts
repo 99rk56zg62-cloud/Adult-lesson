@@ -213,6 +213,9 @@ function migrate(db: DatabaseSync) {
   `);
 
   ensureColumn(db, "bookings", "cancelled_at", "TEXT");
+  ensureColumn(db, "locations", "arrival_instructions", "TEXT");
+  ensureColumn(db, "locations", "latitude", "REAL");
+  ensureColumn(db, "locations", "longitude", "REAL");
 
   ensureColumn(db, "slots", "enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "slots", "cancelled", "INTEGER NOT NULL DEFAULT 0");

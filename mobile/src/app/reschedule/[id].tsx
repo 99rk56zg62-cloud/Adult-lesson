@@ -6,17 +6,20 @@ import { BookingCalendar } from "@/components/booking-calendar";
 import { LengthButtons, TimeGrid } from "@/components/lesson-times";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { colors, heading } from "@/theme";
-import type { Booking, CourseRun, DayAvailability, Slot } from "@/types";
+import type { Booking, DayAvailability, PlannedSession, Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
 export default function RescheduleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; session?: string }>();
+  const id = params.id;
   const [booking, setBooking] = useState<Booking | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [courses, setCourses] = useState<CourseRun[]>([]);
+  const [courseOptions, setCourseOptions] = useState<PlannedSession[]>([]);
+  const [courseSessionId, setCourseSessionId] = useState<string | null>(one(params.session) || null);
+  const [courseChoice, setCourseChoice] = useState<PlannedSession | null>(null);
   const [days, setDays] = useState<DayAvailability[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -34,12 +37,14 @@ export default function RescheduleScreen() {
         if (cancelled) return;
         setBooking(nextBooking.booking);
         if (nextBooking.booking.kind === "course") {
-          const courseList = await api.courses({
-            days: nextBooking.booking.course?.days,
-            partySize: nextBooking.booking.course?.capacity === 2 ? 2 : 1,
-          });
+          const sessionId = one(params.session) || nextBooking.booking.course?.sessions.find((session) => session.movable)?.id || null;
+          setCourseSessionId(sessionId);
+          const exclude = (nextBooking.booking.course?.sessions ?? [])
+            .filter((session) => session.id !== sessionId)
+            .map((session) => session.dateKey);
+          const options = await api.courseDayOptions(nextBooking.booking.course?.locationId, exclude);
           if (cancelled) return;
-          setCourses(courseList.courses.filter((course) => course.id !== nextBooking.booking.course?.id));
+          setCourseOptions(options.sessions);
         } else {
           const schedule = await api.slots({
             locationId: nextBooking.booking.slot?.locationId,
@@ -60,14 +65,13 @@ export default function RescheduleScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, params.session]);
 
   const options = useMemo(
     () => slots.filter((slot) => slot.dateKey === selectedDay).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
     [slots, selectedDay],
   );
   const chosenSlot = options.find((slot) => slot.id === selected) ?? null;
-  const chosenCourse = courses.find((course) => course.id === selected) ?? null;
   const dayMeta = days.find((day) => day.dateKey === selectedDay) ?? null;
 
   async function confirm() {
@@ -76,7 +80,11 @@ export default function RescheduleScreen() {
     setError(null);
     try {
       const result = isCourse
-        ? await api.reschedule(booking.id, { courseRunId: chosenCourse!.id })
+        ? await api.rescheduleSession(booking.id, courseSessionId!, {
+            dateKey: courseChoice!.dateKey,
+            hour: courseChoice!.hour,
+            minute: courseChoice!.minute,
+          })
         : await api.reschedule(booking.id, { slotId: chosenSlot!.id });
       router.replace(`/booking/${result.booking.id}`);
     } catch (caught) {
@@ -88,7 +96,7 @@ export default function RescheduleScreen() {
 
   return (
     <Phone>
-      <TopBar title={isCourse ? "New course run" : "New time"} subtitle="You won't be charged again." back />
+      <TopBar title={isCourse ? "Move a day" : "New time"} subtitle="You won't be charged again." back />
       {!booking && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 28 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
@@ -98,28 +106,30 @@ export default function RescheduleScreen() {
         {booking?.rescheduleAllowed && isCourse ? (
           <>
             <Text style={styles.lead}>
-              Currently {booking.course?.dateSummary}, {booking.course?.dailyTimeLabel} daily.
+              Moving {booking.course?.sessions.find((session) => session.id === courseSessionId)?.dayLabel ?? "a day"}. The other days stay as they are.
             </Text>
-            {courses.length === 0 ? <Text style={styles.empty}>No other open {booking.course?.days}-day runs right now.</Text> : null}
-            {courses.map((course) => (
-              <Pressable
-                key={course.id}
-                accessibilityRole="button"
-                onPress={() => setSelected(course.id)}
-                style={[styles.timeRow, selected === course.id && styles.selected]}
-              >
-                <View style={[styles.bar, { backgroundColor: colors.pool }]} />
-                <View style={styles.body}>
-                  <Text style={styles.time}>{course.dateSummary}</Text>
-                  <Text style={styles.title}>{course.title}</Text>
-                  <Text style={styles.meta}>
-                    {course.dailyTimeLabel} daily · {course.partyLabel}
-                  </Text>
-                </View>
-                <Text style={styles.price}>{course.priceLabel}</Text>
-              </Pressable>
+            {booking.course?.sessions.map((session) => (
+              <Text key={session.id} style={styles.empty}>
+                {session.dayLabel}, {session.timeLabel}
+                {session.movable ? "" : ` — ${session.moveBlockedReason}`}
+              </Text>
             ))}
-            {chosenCourse?.soon ? <Banner tone="warn" text="That run starts soon, so you won't be able to move it again." /> : null}
+            {courseOptions.map((option) => {
+              const picked = courseChoice?.dateKey === option.dateKey && courseChoice.hour === option.hour && courseChoice.minute === option.minute;
+              return (
+                <Pressable
+                  key={`${option.dateKey}-${option.hour}-${option.minute}`}
+                  accessibilityRole="button"
+                  onPress={() => setCourseChoice(option)}
+                  style={[styles.timeRow, picked && styles.selected]}
+                >
+                  <View style={styles.body}>
+                    <Text style={styles.time}>{option.dayLabel}</Text>
+                    <Text style={styles.meta}>{option.timeLabel}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
           </>
         ) : null}
         {booking?.rescheduleAllowed && !isCourse ? (
@@ -166,8 +176,8 @@ export default function RescheduleScreen() {
       {booking?.rescheduleAllowed ? (
         <View style={styles.footer}>
           <Button
-            label={busy ? "Moving…" : isCourse ? (chosenCourse ? "Confirm new run" : "Choose a run") : chosenSlot ? "Confirm new time" : "Choose a session"}
-            disabled={busy || (isCourse ? !chosenCourse : !chosenSlot)}
+            label={busy ? "Moving…" : isCourse ? (courseChoice ? "Confirm new day" : "Choose a day") : chosenSlot ? "Confirm new time" : "Choose a session"}
+            disabled={busy || (isCourse ? !courseChoice || !courseSessionId : !chosenSlot)}
             onPress={confirm}
           />
         </View>

@@ -336,8 +336,12 @@ function busyRanges(db: DatabaseSync, nowIso: string, exceptBookingId?: string):
   const courses = getRows<{ starts_at: string; ends_at: string }>(
     db,
     `SELECT cs.starts_at, cs.ends_at
-     FROM course_sessions cs JOIN course_runs cr ON cr.id = cs.run_id
-     WHERE cr.enabled = 1 AND cr.cancelled = 0`,
+     FROM course_sessions cs
+     JOIN bookings b ON b.course_run_id = cs.run_id
+     WHERE b.id != ?
+       AND (b.status = 'confirmed' OR (b.status = 'pending_payment' AND b.hold_expires_at > ?))`,
+    exceptBookingId ?? "",
+    nowIso,
   );
   return [
     ...bookings.map((row) => ({

@@ -89,6 +89,11 @@ function BookingRow({ booking }: { booking: Booking }) {
         </Text>
         </Pressable>
         {pending && booking.holdExpiresLabel ? <Text style={styles.hold}>Held until {booking.holdExpiresLabel}</Text> : null}
+        {booking.status === "confirmed" ? (
+          <Pressable accessibilityRole="link" onPress={() => router.push("/arrival" as never)}>
+            <Text style={styles.link}>How to find us</Text>
+          </Pressable>
+        ) : null}
         {booking.status === "confirmed" && booking.rescheduleAllowed ? (
           <View style={styles.actions}>
             <Button label="Rearrange" variant="secondary" onPress={() => router.push(`/reschedule/${booking.id}`)} />
@@ -111,6 +116,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted, lineHeight: 18 },
   hold: { color: colors.warn, fontWeight: "600", marginTop: 4 },
+  link: { color: colors.atlantic, fontWeight: "700", marginTop: 8 },
   actions: { marginTop: 8 },
   policy: { color: colors.ink, lineHeight: 20, backgroundColor: colors.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line },
   empty: { gap: 12, paddingTop: 12 },

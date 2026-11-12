@@ -133,7 +133,7 @@ export function adminOverviewPage(input: {
     </div>
     <div class="card">
       <h2>How customers book</h2>
-      <p class="muted">They pick a location (when more than one exists), choose 30 or 60 minute single lessons on the calendar, or book a 3/4/5-day morning crash course. Full sessions stay greyed out. The 6-week window and 24-hour rearrange lock apply to both lessons and courses (courses lock 24 hours before day one).</p>
+      <p class="muted">They pick a location (when more than one exists), choose 30 or 60 minute single lessons on the calendar, or book a 3/4/5-day morning crash course. Full sessions stay greyed out. The 6-week window and 24-hour rearrange lock apply to lessons and to each day of a crash course. Arrival notes for each pool are edited under Locations.</p>
     </div>`,
     input.notice,
   );
@@ -194,7 +194,7 @@ export function adminLocationsPage(input: {
   const rows = input.locations
     .map(
       (location) => `<tr>
-        <td><strong>${esc(location.name)}</strong><br /><span class="muted">${esc(location.address)}</span></td>
+        <td><strong>${esc(location.name)}</strong><br /><span class="muted">${esc(location.address)}</span>${location.arrivalInstructions ? `<br /><span class="muted">Arrival notes saved</span>` : ""}</td>
         <td><span class="pill ${location.enabled ? "on" : "off"}">${location.enabled ? "Open" : "Hidden"}</span></td>
         <td><a class="button secondary" href="/admin/locations?edit=${encodeURIComponent(location.id)}">Edit</a></td>
       </tr>`,
@@ -205,8 +205,11 @@ export function adminLocationsPage(input: {
     <div class="grid">
       <div><label>Name</label><input name="name" required value="${esc(editing?.name ?? "")}" /></div>
       <div><label>Address</label><input name="address" required value="${esc(editing?.address ?? "")}" /></div>
+      <div><label>Map latitude</label><input name="latitude" inputmode="decimal" value="${editing?.latitude ?? ""}" /></div>
+      <div><label>Map longitude</label><input name="longitude" inputmode="decimal" value="${editing?.longitude ?? ""}" /></div>
       ${editing ? `<div><label>Status</label><select name="enabled"><option value="1"${editing.enabled ? " selected" : ""}>Open</option><option value="0"${!editing.enabled ? " selected" : ""}>Hidden</option></select></div>` : ""}
     </div>
+    <div><label>Arrival instructions</label><textarea name="arrival" rows="8">${esc(editing?.arrivalInstructions ?? "")}</textarea></div>
     <div class="row"><button type="submit">${editing ? "Update location" : "Add location"}</button></div>
   </form>`;
   return adminShell(

@@ -86,6 +86,34 @@ export const api = {
       maxAdvanceWeeks: number;
       rescheduleCutoffHours: number;
     }>(`/api/slots${query(filters ?? {})}`),
+  coursePlan: (days: number, locationId?: string) =>
+    request<{
+      days: number;
+      dailyMinutes: number;
+      pricePence: number;
+      priceLabel: string;
+      locationId: string;
+      suggestions: import("@/types").CourseSuggestion[];
+    }>(`/api/course-plans${query({ days, locationId })}`),
+  courseDayOptions: (locationId: string | undefined, excludeDates: string[]) =>
+    request<{ locationId: string; sessions: import("@/types").PlannedSession[] }>(
+      `/api/course-plans/options${query({ locationId, excludeDates: excludeDates.join(",") })}`,
+    ),
+  addCourseToBasket: (body: {
+    days: number;
+    locationId?: string;
+    partySize?: number;
+    sessions: { dateKey: string; hour: number; minute: number }[];
+  }) => request<{ items: Booking[]; totalPence: number; totalLabel: string }>("/api/basket/course", { method: "POST", body }),
+  removeBasketBooking: (bookingId: string) =>
+    request<{ items: Booking[]; totalPence: number; totalLabel: string }>(`/api/basket/bookings/${encodeURIComponent(bookingId)}`, {
+      method: "DELETE",
+    }),
+  rescheduleSession: (bookingId: string, sessionId: string, body: { dateKey: string; hour: number; minute: number }) =>
+    request<{ booking: Booking; calendarSyncError: string | null }>(
+      `/api/bookings/${encodeURIComponent(bookingId)}/sessions/${encodeURIComponent(sessionId)}/reschedule`,
+      { method: "POST", body },
+    ),
   courses: (filters?: { locationId?: string; days?: number; partySize?: number }) =>
     request<{ courses: CourseRun[]; maxAdvanceWeeks: number }>(`/api/courses${query(filters ?? {})}`),
   slot: (id: string) => request<{ slot: Slot }>(`/api/slots/${id}`),

@@ -118,8 +118,24 @@ const adminRuleSchema = z.object({
 
 const adminLocationSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  address: z.string().trim().min(2).max(120),
+  address: z.string().trim().min(2).max(160),
   enabled: z.boolean().optional(),
+  arrivalInstructions: z.string().trim().max(2000).optional(),
+  latitude: z.number().gte(-90).lte(90).nullable().optional(),
+  longitude: z.number().gte(-180).lte(180).nullable().optional(),
+});
+
+const courseSessionSchema = z.object({
+  dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hour: z.number().int().min(0).max(23),
+  minute: z.number().int().min(0).max(59),
+});
+
+const courseBasketSchema = z.object({
+  days: z.union([z.literal(3), z.literal(4), z.literal(5)]),
+  locationId: z.string().min(1).optional(),
+  partySize: z.union([z.literal(1), z.literal(2)]).optional(),
+  sessions: z.array(courseSessionSchema).min(3).max(5),
 });
 
 const adminCourseProductSchema = z.object({
@@ -189,6 +205,15 @@ function readCookie(req: Request, name: string): string | null {
 function field(body: any, name: string): string {
   const value = body?.[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function coordFields(body: unknown): { latitude: number | null; longitude: number | null } {
+  const latitude = Number(field(body, "latitude"));
+  const longitude = Number(field(body, "longitude"));
+  return {
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+  };
 }
 
 function poundsToPence(value: string): number {
@@ -524,6 +549,58 @@ export function createApp(deps: AppDeps) {
     requireUser,
     route(async (req, res) => {
       res.json(service.removeFromBasket(userId(res), param(req.params.slotId)));
+    }),
+  );
+
+  app.get(
+    "/api/course-plans",
+    requireUser,
+    route(async (req, res) => {
+      const days = Number(queryValue(req.query.days));
+      const locationId = queryValue(req.query.locationId) ?? undefined;
+      const partySize = partySizeQuery(req.query.partySize);
+      res.json(service.courseSuggestions(userId(res), { days, locationId, partySize }));
+    }),
+  );
+
+  app.get(
+    "/api/course-plans/options",
+    requireUser,
+    route(async (req, res) => {
+      const locationId = queryValue(req.query.locationId) ?? undefined;
+      const exclude = queryValue(req.query.excludeDates);
+      res.json(
+        service.courseDayOptions(userId(res), {
+          locationId,
+          excludeDateKeys: exclude ? exclude.split(",").filter(Boolean) : [],
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/api/basket/course",
+    requireUser,
+    route(async (req, res) => {
+      res.status(201).json(service.addCourseToBasket(userId(res), courseBasketSchema.parse(req.body)));
+    }),
+  );
+
+  app.delete(
+    "/api/basket/bookings/:bookingId",
+    requireUser,
+    route(async (req, res) => {
+      res.json(service.removeBasketBooking(userId(res), param(req.params.bookingId)));
+    }),
+  );
+
+  app.post(
+    "/api/bookings/:id/sessions/:sessionId/reschedule",
+    requireUser,
+    route(async (req, res) => {
+      const choice = courseSessionSchema.parse(req.body);
+      const result = await service.rescheduleCourseSession(userId(res), param(req.params.id), param(req.params.sessionId), choice);
+      res.json({ booking: result.booking, calendarSyncError: result.calendarSyncError });
     }),
   );
 
@@ -1008,7 +1085,12 @@ export function createApp(deps: AppDeps) {
     "/admin/locations",
     route(async (req, res) => {
       if (!requireAdminPage(req, res)) return;
-      service.createAdminLocation({ name: field(req.body, "name"), address: field(req.body, "address") });
+      service.createAdminLocation({
+        name: field(req.body, "name"),
+        address: field(req.body, "address"),
+        arrivalInstructions: field(req.body, "arrival"),
+        ...coordFields(req.body),
+      });
       res.redirect(303, "/admin/locations?notice=" + encodeURIComponent("Location added."));
     }),
   );
@@ -1021,6 +1103,8 @@ export function createApp(deps: AppDeps) {
         name: field(req.body, "name"),
         address: field(req.body, "address"),
         enabled: field(req.body, "enabled") === "1",
+        arrivalInstructions: field(req.body, "arrival"),
+        ...coordFields(req.body),
       });
       res.redirect(303, "/admin/locations?notice=" + encodeURIComponent("Location updated."));
     }),

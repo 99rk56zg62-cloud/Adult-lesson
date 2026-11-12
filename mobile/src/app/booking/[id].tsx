@@ -112,15 +112,28 @@ export default function BookingScreen() {
             {isCourse && booking.course ? (
               <View style={styles.schedule}>
                 {booking.course.sessions.map((session) => (
-                  <Text key={session.dayIndex} style={styles.sessionLine}>
-                    Day {session.dayIndex}: {session.dayLabel}, {session.timeLabel}
-                  </Text>
+                  <View key={session.id} style={styles.block}>
+                    <Text style={styles.meta}>
+                      {session.dayLabel}, {session.timeLabel}
+                    </Text>
+                    {booking.status === "confirmed" && !session.movable ? (
+                      <Text style={styles.body}>{session.moveBlockedReason}</Text>
+                    ) : null}
+                    {booking.status === "confirmed" && session.movable ? (
+                      <Button
+                        label="Change this day"
+                        variant="secondary"
+                        onPress={() => router.push({ pathname: "/reschedule/[id]", params: { id: booking.id, session: session.id } })}
+                      />
+                    ) : null}
+                  </View>
                 ))}
               </View>
             ) : null}
             <Text style={styles.place}>{place}</Text>
             <Text style={styles.meta}>{meta}</Text>
             <Text style={styles.body}>{BOOKING_POLICY}</Text>
+            <Button label="Location & arrival" variant="secondary" onPress={() => router.push("/arrival" as never)} />
             {pending ? (
               <>
                 <Banner
@@ -132,22 +145,24 @@ export default function BookingScreen() {
             ) : null}
             {booking.status === "confirmed" ? (
               <View style={styles.block}>
-                <Text style={styles.heading}>{isCourse ? "Move course" : "Rearrange"}</Text>
+                <Text style={styles.heading}>{isCourse ? "Move a day" : "Rearrange"}</Text>
                 {booking.rescheduleAllowed ? (
                   <Text style={styles.body}>
                     {isCourse
-                      ? `You can move to another open ${booking.course?.days}-day run until ${booking.rescheduleClosesLabel}. You won't be charged again.`
+                      ? "You can move any day until 24 hours before that session. You won't be charged again."
                       : `You can move this lesson until ${booking.rescheduleClosesLabel}. You won't be charged again.`}
                   </Text>
                 ) : (
                   <Text style={styles.body}>{booking.rescheduleBlockedReason}</Text>
                 )}
-                <Button
-                  label={isCourse ? "Choose another run" : "Choose a new time"}
-                  variant="secondary"
-                  disabled={!booking.rescheduleAllowed}
-                  onPress={() => router.push(`/reschedule/${booking.id}`)}
-                />
+                {isCourse ? null : (
+                  <Button
+                    label="Choose a new time"
+                    variant="secondary"
+                    disabled={!booking.rescheduleAllowed}
+                    onPress={() => router.push(`/reschedule/${booking.id}`)}
+                  />
+                )}
               </View>
             ) : null}
             {booking.status === "confirmed" ? (

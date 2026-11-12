@@ -668,51 +668,92 @@ describe("lido api", { concurrency: 1 }, () => {
     }
   });
 
-  test("books a crash course package and can move to another run of the same length", async () => {
+  test("suggests the next crash course and moves one day until 24 hours before it", async () => {
     const ctx = await createTestApp();
     try {
       const { token } = await register(ctx);
-      const courses = await listCourses(ctx, token);
-      assert.ok(courses.some((course) => course.days === 3));
-      assert.ok(courses.some((course) => course.days === 4));
-      assert.ok(courses.some((course) => course.days === 5));
-      const threeDay = courses.find((course) => course.days === 3 && course.bookable);
-      assert.ok(threeDay);
-      assert.ok(threeDay.sessions.length === 3);
-      assert.match(threeDay.dailyTimeLabel, /am$/);
-      assert.equal(threeDay.pricePence, 34900);
-      assert.match(threeDay.priceLabel, /349/);
-      assert.equal(courses.find((course) => course.days === 4)?.pricePence, 44900);
-      assert.equal(courses.find((course) => course.days === 5)?.pricePence, 54900);
-      assert.equal("level" in threeDay, false);
-      assert.ok(threeDay.partyLabel === "1-to-1" || threeDay.partyLabel === "1-to-2");
+      const plan = await api(ctx.base, "/api/course-plans?days=3", { token });
+      assert.equal(plan.status, 200);
+      assert.equal(plan.json.pricePence, 34900);
+      assert.match(plan.json.priceLabel, /349/);
+      const suggestion = plan.json.suggestions[0];
+      assert.ok(suggestion);
+      assert.equal(suggestion.sessions.length, 3);
+      assert.deepEqual(
+        suggestion.sessions.map((session: { dateKey: string }) => session.dateKey),
+        ["2026-09-22", "2026-09-23", "2026-09-24"],
+      );
+      assert.ok(suggestion.sessions.every((session: { hour: number; minute: number }) => session.hour === 6 && session.minute === 0));
+      const four = await api(ctx.base, "/api/course-plans?days=4", { token });
+      const five = await api(ctx.base, "/api/course-plans?days=5", { token });
+      assert.equal(four.json.pricePence, 44900);
+      assert.equal(five.json.pricePence, 54900);
 
-      const booked = await payForCourse(ctx, token, threeDay.id);
-      assert.equal(booked.kind, "course");
-      assert.equal(booked.pricePence, 34900);
-      assert.equal(booked.course!.id, threeDay.id);
-      assert.equal(booked.course!.sessions.length, 3);
+      const custom = [
+        suggestion.sessions[0],
+        suggestion.sessions[2],
+        { dateKey: "2026-09-26", hour: 6, minute: 0 },
+      ];
+      const held = await api(ctx.base, "/api/basket/course", {
+        method: "POST",
+        token,
+        body: { days: 3, sessions: custom.map((session) => ({ dateKey: session.dateKey, hour: session.hour, minute: session.minute })) },
+      });
+      assert.equal(held.status, 201, held.text);
+      assert.equal(held.json.items.length, 1);
+      assert.equal(held.json.items[0].kind, "course");
+      assert.equal(held.json.items[0].pricePence, 34900);
+      assert.deepEqual(
+        held.json.items[0].course.sessions.map((session: { dateKey: string }) => session.dateKey),
+        ["2026-09-22", "2026-09-24", "2026-09-26"],
+      );
 
-      const alternate = courses.find((course) => course.days === 3 && course.bookable && course.id !== threeDay.id);
-      if (alternate) {
-        const moved = await api(ctx.base, `/api/bookings/${booked.id}/reschedule`, {
-          method: "POST",
-          token,
-          body: { courseRunId: alternate.id },
-        });
-        assert.equal(moved.status, 200, moved.text);
-        assert.equal(moved.json.booking.course!.id, alternate.id);
-      }
+      const duplicate = await api(ctx.base, "/api/basket/course", {
+        method: "POST",
+        token: (await register(ctx)).token,
+        body: { days: 3, sessions: custom.map((session) => ({ dateKey: session.dateKey, hour: session.hour, minute: session.minute })) },
+      });
+      assert.equal(duplicate.status, 409);
 
-      const wrongLength = courses.find((course) => course.days === 4 && course.bookable);
-      if (wrongLength) {
-        const blocked = await api(ctx.base, `/api/bookings/${booked.id}/reschedule`, {
-          method: "POST",
-          token,
-          body: { courseRunId: wrongLength.id },
-        });
-        assert.equal(blocked.status, 400);
-      }
+      const checkout = await api(ctx.base, "/api/basket/checkout", {
+        method: "POST",
+        token,
+        body: { returnUrl: "http://127.0.0.1:9/payment/success" },
+      });
+      assert.equal(checkout.status, 200, checkout.text);
+      const payToken = new URL(checkout.json.checkoutUrl as string).searchParams.get("token");
+      assert.ok(payToken);
+      const completed = await api(ctx.base, "/api/payments/mock-complete", { method: "POST", body: { token: payToken } });
+      assert.equal(completed.status, 303);
+      const returned = await api(ctx.base, completed.headers.get("location") ?? "");
+      assert.equal(returned.status, 303);
+      const confirmed = await api(ctx.base, `/api/bookings/${held.json.items[0].id}`, { token });
+      assert.equal(confirmed.status, 200);
+      const paid = confirmed.json.booking;
+      assert.equal(paid.pricePence, 34900);
+      const [locked, open] = paid.course!.sessions;
+      assert.equal(locked!.movable, false);
+      assert.match(locked!.moveBlockedReason ?? "", /24 hours/);
+      assert.equal(open!.movable, true);
+      const blockedMove = await api(ctx.base, `/api/bookings/${paid.id}/sessions/${locked!.id}/reschedule`, {
+        method: "POST",
+        token,
+        body: { dateKey: "2026-09-28", hour: 6, minute: 0 },
+      });
+      assert.equal(blockedMove.status, 409);
+      const moved = await api(ctx.base, `/api/bookings/${paid.id}/sessions/${open!.id}/reschedule`, {
+        method: "POST",
+        token,
+        body: { dateKey: "2026-09-28", hour: 6, minute: 0 },
+      });
+      assert.equal(moved.status, 200, moved.text);
+      assert.ok(moved.json.booking.course.sessions.some((session: { dateKey: string }) => session.dateKey === "2026-09-28"));
+      assert.equal(moved.json.booking.course.sessions.some((session: { dateKey: string }) => session.dateKey === open!.dateKey), false);
+
+      const location = await api(ctx.base, "/api/locations", { token });
+      const fareham = location.json.locations.find((item: { name: string }) => item.name.includes("Fareham"));
+      assert.match(fareham.address, /PO16 0DZ/);
+      assert.match(fareham.arrivalInstructions, /pop your shoes off/);
     } finally {
       await ctx.close();
     }
