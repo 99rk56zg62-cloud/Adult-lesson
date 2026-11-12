@@ -1,18 +1,20 @@
 # Lido
 
-Adult swimming lesson bookings for iOS, Android, and web. Customers pick a location (when more than one exists), choose a private **1-to-1** or **1-to-2** session, then a 30 or 60 minute start inside the pool's availability window, or book a 3/4/5-day morning crash course. Lessons are not organised by skill level. Several lessons can go in one basket and one payment. Bookings are non-refundable. A lesson can be moved until 24 hours before it starts, and that move updates Google Calendar.
+Adult swimming lesson bookings for iOS, Android, and web. Customers pick a date on the month calendar, then a 30 or 60 minute lesson, then a start time inside that day's availability window. They can also book a 3/4/5-day morning crash course. Lessons are not organised by skill level. Several lessons can go in one basket and one payment. Bookings are non-refundable. A lesson can be moved until 24 hours before it starts, and that move updates Google Calendar.
 
 The mobile client is Expo (React Native). The API is a small Node server with SQLite. Business rules are enforced on the server. Pool staff manage locations, availability windows, lesson prices, and crash courses in a simple admin web page.
 
 ## How booking works now
 
-1. Open **Schedule**. If several pools are open, pick a **location**. Choose **1-to-1** or **1-to-2** (one teacher with one or two swimmers), then **30 min · £30** or **60 min · £60**. The same prices apply to both party sizes. Staff can change the two prices in admin.
-2. Tap a highlighted date in the next **6 weeks** (UK / Europe/London). The day shows the open window, for example **Available 6:00am–9:00am**. Start times are only on the hour or the half hour, and the lesson must finish inside the window (a 60 minute lesson in a 6:00–9:00 window can start no later than 8:00). Times that overlap a booking, a live hold, or a crash-course session are hidden.
-3. Tap a start time to add it to the basket. Add several lessons on the same day or across days, mixing 30 and 60 minutes, as long as they do not overlap each other. The bar shows the count and the running total. Remove a lesson before paying.
-4. Pay once for the basket total (Stripe Checkout, or the local test-payment page when no Stripe key is set). The checkout repeats: **Bookings are non-refundable. You can move your lesson up to 24 hours before it starts.** Payment creates one booking per lesson.
-5. Scroll to **Crash courses** to book a whole 3-, 4-, or 5-day run of the same session type. Each day is **90 minutes**, with daily starts between **06:00 and 09:00** UK time. The price is the package total: **£349** (3 days), **£449** (4 days), or **£549** (5 days). The app shows every day and time in the package. Courses are booked as a package, not through the lesson basket.
-6. Bookings appear under **Lessons**, with the same non-refundable line. **Rearrange** is offered until **24 hours** before a lesson starts. Inside that window the button is hidden and the screen says you can move a lesson until 24 hours before it starts. Crash courses can be moved to another open run of the **same length** until **24 hours before day one**. There is no customer cancel action and no refund.
-7. Use **Add to Google Calendar** on a booking, or connect Google on Account so paid bookings sync automatically. Moving a lesson updates its calendar event and frees the old time.
+1. Open **Schedule**. The location is **West Street Fareham** (`153 West Street`) unless staff have added another pool, in which case the customer picks one first.
+2. Tap a highlighted date in the next **6 weeks** (UK / Europe/London). Only dates with something free can be selected. Grey dates are full or have no window.
+3. Choose the lesson length: **30 minutes (£30)** or **60 minutes (£60)**. The same prices apply to 1-to-1 and 1-to-2. Switching length updates the times immediately. Staff can change the two prices in admin.
+4. The day shows every start on the hour or half hour that fits inside the window (a 60 minute lesson in a 6:00–9:00 window can start no later than 8:00). Free times show the price. Times that overlap a booking, a live hold, or a crash course stay on the grid in grey.
+5. Tap a free time to add it to the basket. Choose another date or length and add more, including a mix of 30 and 60 minutes, as long as the lessons do not overlap. The bar shows the count and the running total. Remove a lesson before paying.
+6. Pay once for the basket total (Stripe Checkout, or the local test-payment page when no Stripe key is set). The checkout repeats: **Bookings are non-refundable. You can move your lesson up to 24 hours before it starts.** Payment creates one booking per lesson.
+7. Scroll to **Crash courses** to book a whole 3-, 4-, or 5-day run of the same session type. Each day is **90 minutes**, with daily starts between **06:00 and 09:00** UK time. The price is the package total: **£349** (3 days), **£449** (4 days), or **£549** (5 days). The app shows every day and time in the package. Courses are booked as a package, not through the lesson basket.
+8. Bookings appear under **Lessons**, with the same non-refundable line. **Rearrange** is offered until **24 hours** before a lesson starts. Inside that window the button is hidden and the screen says you can move a lesson until 24 hours before it starts. Crash courses can be moved to another open run of the **same length** until **24 hours before day one**. There is no customer cancel action and no refund.
+9. Use **Add to Google Calendar** on a booking, or connect Google on Account so paid bookings sync automatically. Moving a lesson updates its calendar event and frees the old time.
 
 Staff set locations, daily availability windows, the £30 and £60 rates, and crash course products/runs in the **admin area**.
 
@@ -94,7 +96,7 @@ After changing availability, pull to refresh the Schedule screen in the app.
 
 ## What to click through
 
-1. **Schedule.** Pick 30 or 60 minutes → calendar date → a start on the hour or half hour. Add more than one lesson and check the running total.
+1. **Schedule.** Choose a highlighted date, then 30 or 60 minutes, then a start time. Grey times are taken. Add more than one lesson and check the running total.
 2. **Basket.** Pay once on the mock page (or Stripe with `4242 4242 4242 4242`). The non-refundable line is on the basket and on the test-payment page.
 3. **Lessons.** Confirm each `LD-` reference. Rearrange a lesson that is more than 24 hours away. A lesson inside 24 hours shows the lock note and no Rearrange button.
 4. **Admin.** Add a location, a weekly class, or a course run and confirm the customer schedule updates.

@@ -125,12 +125,13 @@ function roomy(slots: SlotDto[]): SlotDto {
 async function listSlots(
   ctx: Ctx,
   token: string,
-  filters?: { locationId?: string; durationMinutes?: number; partySize?: number },
+  filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string },
 ): Promise<SlotDto[]> {
   const query = new URLSearchParams();
   if (filters?.locationId) query.set("locationId", filters.locationId);
   if (filters?.durationMinutes !== undefined) query.set("durationMinutes", String(filters.durationMinutes));
   if (filters?.partySize !== undefined) query.set("partySize", String(filters.partySize));
+  if (filters?.excludeBookingId) query.set("excludeBookingId", filters.excludeBookingId);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   const response = await api(ctx.base, `/api/slots${suffix}`, { token });
   assert.equal(response.status, 200);
@@ -333,6 +334,8 @@ describe("lido api", { concurrency: 1 }, () => {
 
       const open = await payFor(ctx, token, later.id);
       assert.equal(open.rescheduleAllowed, true);
+      const heldAside = await listSlots(ctx, token, { excludeBookingId: open.id });
+      assert.equal(heldAside.find((slot) => slot.id === later.id)?.bookable, true);
       const target = slots.find(
         (slot) => slot.bookable && !slot.soon && slot.id !== later.id && slot.startsAt >= later.endsAt,
       );

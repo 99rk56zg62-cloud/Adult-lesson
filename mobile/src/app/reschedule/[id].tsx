@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
 import { BookingCalendar } from "@/components/booking-calendar";
+import { LengthButtons, TimeGrid } from "@/components/lesson-times";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { colors, heading } from "@/theme";
 import type { Booking, CourseRun, DayAvailability, Slot } from "@/types";
@@ -44,15 +45,13 @@ export default function RescheduleScreen() {
             locationId: nextBooking.booking.slot?.locationId,
             durationMinutes: nextBooking.booking.slot?.durationMinutes,
             partySize: nextBooking.booking.slot?.capacity === 2 ? 2 : 1,
+            excludeBookingId: nextBooking.booking.id,
           });
           if (cancelled) return;
           setSlots(schedule.slots);
           setDays(schedule.days);
-          const first =
-            schedule.days.find((day) => day.selectable && day.dateKey !== nextBooking.booking.slot?.dateKey) ??
-            schedule.days.find((day) => day.selectable);
-          setSelectedDay(first?.dateKey ?? null);
-          if (first) setMonthKey(first.dateKey.slice(0, 7));
+          const currentDay = nextBooking.booking.slot?.dateKey;
+          if (currentDay && schedule.days.some((day) => day.dateKey === currentDay)) setMonthKey(currentDay.slice(0, 7));
         }
       } catch (caught) {
         if (!cancelled) setError(messageOf(caught));
@@ -64,8 +63,8 @@ export default function RescheduleScreen() {
   }, [id]);
 
   const options = useMemo(
-    () => slots.filter((slot) => slot.bookable && slot.id !== booking?.slot?.id && slot.dateKey === selectedDay),
-    [slots, booking?.slot?.id, selectedDay],
+    () => slots.filter((slot) => slot.dateKey === selectedDay).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+    [slots, selectedDay],
   );
   const chosenSlot = options.find((slot) => slot.id === selected) ?? null;
   const chosenCourse = courses.find((course) => course.id === selected) ?? null;
@@ -138,26 +137,28 @@ export default function RescheduleScreen() {
               }}
               onMonthChange={setMonthKey}
             />
-            {dayMeta ? <Text style={styles.dayTitle}>{dayMeta.dayLabel}</Text> : null}
-            {options.length === 0 ? <Text style={styles.empty}>No other open times on this day.</Text> : null}
-            {options.map((slot) => (
-              <Pressable
-                key={slot.id}
-                accessibilityRole="button"
-                onPress={() => setSelected(slot.id)}
-                style={[styles.timeRow, selected === slot.id && styles.selected]}
-              >
-                <View style={[styles.bar, { backgroundColor: colors.pool }]} />
-                <View style={styles.body}>
-                  <Text style={styles.time}>{slot.startTimeLabel}</Text>
-                  <Text style={styles.title}>{slot.title}</Text>
-                  <Text style={styles.meta}>
-                    {slot.location} · {slot.partyLabel}
-                  </Text>
-                </View>
-                <Text style={styles.price}>{slot.priceLabel}</Text>
-              </Pressable>
-            ))}
+            {selectedDay ? (
+              <>
+                <Text style={styles.dayTitle}>{dayMeta?.dayLabel}</Text>
+                <Text style={styles.filterLabel}>Lesson length</Text>
+                <LengthButtons
+                  locked
+                  options={[{ minutes: booking.slot?.durationMinutes ?? 60, priceLabel: booking.slot?.priceLabel ?? "" }]}
+                  selected={booking.slot?.durationMinutes ?? null}
+                  onSelect={() => {}}
+                />
+                <Text style={styles.empty}>This lesson stays the same length. Grey times are already taken.</Text>
+                {options.length === 0 ? <Text style={styles.empty}>No starts of this length fit in the window.</Text> : null}
+                <TimeGrid
+                  slots={options}
+                  currentId={booking.slot?.id}
+                  selectedId={selected}
+                  onPress={(slot) => setSelected(slot.id)}
+                />
+              </>
+            ) : (
+              <Text style={styles.empty}>Choose a highlighted date.</Text>
+            )}
             {chosenSlot?.soon ? <Banner tone="warn" text="That session starts soon, so you won't be able to rearrange it again." /> : null}
           </>
         ) : null}
@@ -179,6 +180,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 24 },
   lead: { color: colors.ink, lineHeight: 21 },
   dayTitle: { fontFamily: heading, fontSize: 22, fontWeight: "700", color: colors.ink, marginTop: 4 },
+  filterLabel: { fontWeight: "700", color: colors.ink, fontSize: 13 },
   empty: { color: colors.muted, lineHeight: 20 },
   timeRow: {
     flexDirection: "row",

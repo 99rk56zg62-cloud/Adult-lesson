@@ -463,6 +463,7 @@ export function createService(deps: ServiceDeps) {
         throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
       }
       if (filters?.locationId) requireLocation(filters.locationId);
+      if (filters?.excludeBookingId) requireOwned(userId, filters.excludeBookingId);
       const now = clock();
       const slots = listVisibleSlots(now, userId, filters);
       const ends = lastBookableDay(now);

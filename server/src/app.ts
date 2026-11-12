@@ -435,7 +435,8 @@ export function createApp(deps: AppDeps) {
       const durationRaw = queryValue(req.query.durationMinutes);
       const durationMinutes = durationRaw ? Number(durationRaw) : undefined;
       const partySize = partySizeQuery(req.query.partySize);
-      res.json(service.listSlots(userId(res), { locationId, durationMinutes, partySize }));
+      const excludeBookingId = queryValue(req.query.excludeBookingId) ?? undefined;
+      res.json(service.listSlots(userId(res), { locationId, durationMinutes, partySize, excludeBookingId }));
     }),
   );
 

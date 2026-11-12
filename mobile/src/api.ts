@@ -78,7 +78,7 @@ export const api = {
     request<{ token: string; user: User }>("/api/auth/login", { method: "POST", body, auth: false }),
   me: () => request<{ user: User }>("/api/me"),
   locations: () => request<{ locations: Location[] }>("/api/locations"),
-  slots: (filters?: { locationId?: string; durationMinutes?: number; partySize?: number }) =>
+  slots: (filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string }) =>
     request<{
       slots: Slot[];
       days: import("@/types").DayAvailability[];

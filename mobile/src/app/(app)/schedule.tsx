@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
 import { BookingCalendar } from "@/components/booking-calendar";
+import { LengthButtons, TimeGrid } from "@/components/lesson-times";
 import { Banner, TopBar } from "@/components/ui";
 import { colors, heading, strong } from "@/theme";
 import type { CourseRun, DayAvailability, Location, Slot } from "@/types";
@@ -12,7 +13,7 @@ export default function ScheduleScreen() {
   const { config } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationId, setLocationId] = useState<string | null>(null);
-  const [durationMinutes, setDurationMinutes] = useState<number>(30);
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [partySize, setPartySize] = useState<number>(1);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [courses, setCourses] = useState<CourseRun[]>([]);
@@ -31,7 +32,7 @@ export default function ScheduleScreen() {
     try {
       const [locationResult, schedule, courseResult, basket] = await Promise.all([
         api.locations(),
-        api.slots({ locationId: locationId ?? undefined, durationMinutes, partySize }),
+        api.slots({ locationId: locationId ?? undefined }),
         api.courses({ locationId: locationId ?? undefined, partySize }),
         api.basket(),
       ]);
@@ -40,26 +41,22 @@ export default function ScheduleScreen() {
       setLocations(locationResult.locations);
       setLocationId((current) => {
         if (current && locationResult.locations.some((location) => location.id === current)) return current;
-        return locationResult.locations.length > 1 ? locationResult.locations[0]!.id : null;
+        const fareham = locationResult.locations.find((location) => location.address.includes("153 West Street"));
+        return (fareham ?? locationResult.locations[0])?.id ?? null;
       });
       setSlots(schedule.slots);
       setCourses(courseResult.courses);
       setDays(schedule.days);
       setWindowLabel(schedule.windowEndsLabel);
       setError(null);
-      setSelected((current) => {
-        if (current && schedule.days.some((day) => day.dateKey === current && day.selectable)) return current;
-        const next = schedule.days.find((day) => day.selectable)?.dateKey ?? null;
-        if (next) setMonthKey((month) => (current ? month : next.slice(0, 7)));
-        return next;
-      });
+      setSelected((current) => (current && schedule.days.some((day) => day.dateKey === current && day.selectable) ? current : null));
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [durationMinutes, locationId, partySize]);
+  }, [locationId, partySize]);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,7 +64,15 @@ export default function ScheduleScreen() {
     }, [load]),
   );
 
-  const daySlots = useMemo(() => slots.filter((slot) => slot.dateKey === selected), [slots, selected]);
+  const daySlots = useMemo(
+    () =>
+      durationMinutes == null
+        ? []
+        : slots
+            .filter((slot) => slot.dateKey === selected && slot.durationMinutes === durationMinutes && slot.capacity === partySize)
+            .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+    [slots, selected, durationMinutes, partySize],
+  );
   const selectedDay = days.find((day) => day.dateKey === selected) ?? null;
   const showLocationFilter = locations.length > 1;
   const lessonDurations = config?.lessonDurations ?? [30, 60];
@@ -76,7 +81,7 @@ export default function ScheduleScreen() {
     <View style={styles.screen}>
       <TopBar
         title="Book a lesson"
-        subtitle={windowLabel ? `Pick a date, then a time. Sessions through ${windowLabel}. UK time.` : "Pick a date, then a time."}
+        subtitle={windowLabel ? `Choose a date, then a lesson length. Sessions through ${windowLabel}. UK time.` : "Choose a date, then a lesson length."}
       />
       <ScrollView
         refreshControl={
@@ -111,70 +116,60 @@ export default function ScheduleScreen() {
             </View>
           </View>
         ) : locations[0] ? (
-          <Text style={styles.singleLocation}>{locations[0].name}</Text>
+          <View>
+            <Text style={styles.filterLabel}>{locations[0].name}</Text>
+            <Text style={styles.singleLocation}>{locations[0].address}</Text>
+          </View>
         ) : null}
-
-        <View style={styles.filterBlock}>
-          <Text style={styles.filterLabel}>Session</Text>
-          <View style={styles.chips}>
-            <Chip label="1-to-1" selected={partySize === 1} onPress={() => setPartySize(1)} />
-            <Chip label="1-to-2" selected={partySize === 2} onPress={() => setPartySize(2)} />
-          </View>
-          <Text style={styles.daySub}>One teacher with {partySize === 1 ? "one swimmer" : "two swimmers"}.</Text>
-        </View>
-
-        <View style={styles.filterBlock}>
-          <Text style={styles.filterLabel}>Lesson length</Text>
-          <View style={styles.chips}>
-            {lessonDurations.map((minutes) => {
-              const price = config?.lessonPrices?.find((item) => item.durationMinutes === minutes)?.priceLabel;
-              return (
-                <Chip
-                  key={minutes}
-                  label={price ? `${minutes} min · ${price}` : `${minutes} min`}
-                  selected={durationMinutes === minutes}
-                  onPress={() => setDurationMinutes(minutes)}
-                />
-              );
-            })}
-          </View>
-        </View>
 
         <BookingCalendar
           monthKey={monthKey}
           days={days}
           selected={selected}
           onSelect={setSelected}
-          onMonthChange={(next) => {
-            setMonthKey(next);
-            const inMonth = days.find((day) => day.dateKey.startsWith(next) && day.selectable);
-            if (inMonth) setSelected(inMonth.dateKey);
-          }}
+          onMonthChange={setMonthKey}
         />
         {selectedDay ? (
           <View style={styles.dayBlock}>
             <Text style={styles.dayTitle}>{selectedDay.dayLabel}</Text>
             <Text style={styles.daySub}>
-              {daySlots[0]?.windowLabel ? `Available ${daySlots[0].windowLabel}. ` : ""}
-              {selectedDay.openCount === 0
-                ? "No open times on this day."
-                : selectedDay.openCount === 1
-                  ? "1 start time open"
-                  : `${selectedDay.openCount} start times open`}
+              {slots.find((slot) => slot.dateKey === selected)?.windowLabel
+                ? `Available ${slots.find((slot) => slot.dateKey === selected)?.windowLabel}.`
+                : "Choose how long the lesson should be."}
             </Text>
-            {daySlots.map((slot) => (
-              <TimeRow
-                key={slot.id}
-                slot={slot}
-                onPress={() => {
-                  if (!slot.bookable && !slot.inBasket) return;
-                  void (slot.inBasket ? api.removeFromBasket(slot.id) : api.addToBasket(slot.id)).then(() => load(true));
-                }}
-              />
-            ))}
+            <Text style={styles.filterLabel}>Lesson length</Text>
+            <LengthButtons
+              options={lessonDurations.map((minutes) => ({
+                minutes,
+                priceLabel: config?.lessonPrices?.find((item) => item.durationMinutes === minutes)?.priceLabel ?? "",
+              }))}
+              selected={durationMinutes}
+              onSelect={setDurationMinutes}
+            />
+            <Text style={styles.filterLabel}>Session</Text>
+            <View style={styles.chips}>
+              <Chip label="1-to-1" selected={partySize === 1} onPress={() => setPartySize(1)} />
+              <Chip label="1-to-2" selected={partySize === 2} onPress={() => setPartySize(2)} />
+            </View>
+            {durationMinutes != null ? (
+              <>
+                <Text style={styles.daySub}>
+                  {daySlots.some((slot) => !slot.bookable) ? "Grey times are already taken." : "Every start below is free."}
+                </Text>
+                {daySlots.length === 0 ? <Text style={styles.empty}>No starts of this length fit in the window.</Text> : null}
+                <TimeGrid
+                  slots={daySlots}
+                  onPress={(slot) => {
+                    void (slot.inBasket ? api.removeFromBasket(slot.id) : api.addToBasket(slot.id)).then(() => load(true));
+                  }}
+                />
+              </>
+            ) : (
+              <Text style={styles.daySub}>Choose 30 or 60 minutes to see the start times.</Text>
+            )}
           </View>
         ) : (
-          <Text style={styles.empty}>No open dates in the next 6 weeks for this length.</Text>
+          <Text style={styles.empty}>Choose a highlighted date. Grey dates have nothing free.</Text>
         )}
 
         {courses.length > 0 ? (
@@ -214,32 +209,6 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={[styles.chip, selected && styles.chipSelected]}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function TimeRow({ slot, onPress }: { slot: Slot; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={!slot.bookable}
-      onPress={onPress}
-      style={[styles.timeRow, !slot.bookable && styles.timeDisabled]}
-    >
-      <View style={[styles.bar, { backgroundColor: colors.pool }]} />
-      <View style={styles.timeBody}>
-        <Text style={styles.time}>{slot.startTimeLabel}</Text>
-        <Text style={styles.title}>{slot.title}</Text>
-        <Text style={styles.meta}>
-          {slot.durationMinutes} min · {slot.instructor}
-        </Text>
-      </View>
-      <View style={styles.side}>
-        <Text style={styles.price}>{slot.priceLabel}</Text>
-        <Text style={[styles.spots, !slot.bookable && styles.gone]}>
-          {slot.bookable ? slot.partyLabel : slot.spotsLeft === 0 ? "Booked" : slot.unavailableReason ?? "Unavailable"}
-        </Text>
-      </View>
     </Pressable>
   );
 }
