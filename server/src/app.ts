@@ -501,6 +501,40 @@ export function createApp(deps: AppDeps) {
     }),
   );
 
+  app.get(
+    "/api/basket",
+    requireUser,
+    route(async (_req, res) => {
+      res.json(service.basket(userId(res)));
+    }),
+  );
+
+  app.post(
+    "/api/basket",
+    requireUser,
+    route(async (req, res) => {
+      const slotId = z.object({ slotId: z.string().min(1) }).parse(req.body).slotId;
+      res.status(201).json(service.addToBasket(userId(res), slotId));
+    }),
+  );
+
+  app.delete(
+    "/api/basket/:slotId",
+    requireUser,
+    route(async (req, res) => {
+      res.json(service.removeFromBasket(userId(res), param(req.params.slotId)));
+    }),
+  );
+
+  app.post(
+    "/api/basket/checkout",
+    requireUser,
+    route(async (req, res) => {
+      const body = returnSchema.parse(req.body);
+      res.json(await service.checkoutBasket(userId(res), body.returnUrl));
+    }),
+  );
+
   app.post(
     "/api/bookings/:id/reschedule",
     requireUser,
@@ -848,6 +882,8 @@ export function createApp(deps: AppDeps) {
         adminAvailabilityPage({
           rules: service.listAdminRules(),
           locations: service.listAdminLocations(),
+          windows: service.listAdminWindows(),
+          rates: service.listAdminLessonRates(),
           editId: queryValue(req.query.edit),
           notice: queryValue(req.query.notice),
         }),
@@ -861,6 +897,73 @@ export function createApp(deps: AppDeps) {
       if (!requireAdminPage(req, res)) return;
       service.createAdminRule(ruleFromForm(req.body));
       res.redirect(303, "/admin/availability?notice=" + encodeURIComponent("Weekly class added."));
+    }),
+  );
+
+  app.post(
+    "/api/admin/windows",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const body = z
+        .object({
+          locationId: z.string().min(1),
+          weekday: z.number().int().min(1).max(7),
+          startHour: z.number().int().min(0).max(23),
+          startMinute: z.number().int().min(0).max(59),
+          endHour: z.number().int().min(0).max(23),
+          endMinute: z.number().int().min(0).max(59),
+        })
+        .parse(req.body);
+      res.status(201).json({ window: service.saveAdminWindow(body) });
+    }),
+  );
+
+  app.post(
+    "/admin/windows",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      const time = parseTime(field(req.body, "start") || "06:00");
+      const end = parseTime(field(req.body, "end") || "09:00");
+      service.saveAdminWindow({
+        locationId: field(req.body, "locationId"),
+        weekday: Number(field(req.body, "weekday")),
+        startHour: time.hour,
+        startMinute: time.minute,
+        endHour: end.hour,
+        endMinute: end.minute,
+      });
+      res.redirect(303, "/admin/availability?notice=" + encodeURIComponent("Availability window saved."));
+    }),
+  );
+
+  app.post(
+    "/api/admin/windows/:id/enabled",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const enabled = z.object({ enabled: z.boolean() }).parse(req.body).enabled;
+      res.json({ window: service.setAdminWindowEnabled(param(req.params.id), enabled) });
+    }),
+  );
+
+  app.post(
+    "/admin/windows/:id/toggle",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      const enabled = field(req.body, "enabled") === "1";
+      service.setAdminWindowEnabled(param(req.params.id), enabled);
+      res.redirect(303, "/admin/availability?notice=" + encodeURIComponent(enabled ? "Window turned on." : "Window turned off."));
+    }),
+  );
+
+  app.post(
+    "/admin/lesson-prices",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.saveAdminLessonRates([
+        { durationMinutes: 30, pricePence: poundsToPence(field(req.body, "price30") || "30") },
+        { durationMinutes: 60, pricePence: poundsToPence(field(req.body, "price60") || "60") },
+      ]);
+      res.redirect(303, "/admin/availability?notice=" + encodeURIComponent("Lesson prices saved."));
     }),
   );
 

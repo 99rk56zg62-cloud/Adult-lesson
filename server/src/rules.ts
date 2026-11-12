@@ -48,7 +48,7 @@ export function getRescheduleBlock(startsAt: DateTime, now: DateTime): Reschedul
     return {
       ok: false,
       code: "RESCHEDULE_WINDOW_CLOSED",
-      message: "Bookings can only be rearranged until 24 hours before the session starts.",
+      message: "You can move a lesson until 24 hours before it starts.",
       closesAt,
     };
   }

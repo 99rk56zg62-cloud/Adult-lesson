@@ -23,15 +23,20 @@ export default function ScheduleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [basketTotal, setBasketTotal] = useState<string | null>(null);
+  const [basketCount, setBasketCount] = useState(0);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const [locationResult, schedule, courseResult] = await Promise.all([
+      const [locationResult, schedule, courseResult, basket] = await Promise.all([
         api.locations(),
         api.slots({ locationId: locationId ?? undefined, durationMinutes, partySize }),
         api.courses({ locationId: locationId ?? undefined, partySize }),
+        api.basket(),
       ]);
+      setBasketCount(basket.items.length);
+      setBasketTotal(basket.totalLabel);
       setLocations(locationResult.locations);
       setLocationId((current) => {
         if (current && locationResult.locations.some((location) => location.id === current)) return current;
@@ -121,14 +126,17 @@ export default function ScheduleScreen() {
         <View style={styles.filterBlock}>
           <Text style={styles.filterLabel}>Lesson length</Text>
           <View style={styles.chips}>
-            {lessonDurations.map((minutes) => (
-              <Chip
-                key={minutes}
-                label={`${minutes} min`}
-                selected={durationMinutes === minutes}
-                onPress={() => setDurationMinutes(minutes)}
-              />
-            ))}
+            {lessonDurations.map((minutes) => {
+              const price = config?.lessonPrices?.find((item) => item.durationMinutes === minutes)?.priceLabel;
+              return (
+                <Chip
+                  key={minutes}
+                  label={price ? `${minutes} min · ${price}` : `${minutes} min`}
+                  selected={durationMinutes === minutes}
+                  onPress={() => setDurationMinutes(minutes)}
+                />
+              );
+            })}
           </View>
         </View>
 
@@ -147,14 +155,22 @@ export default function ScheduleScreen() {
           <View style={styles.dayBlock}>
             <Text style={styles.dayTitle}>{selectedDay.dayLabel}</Text>
             <Text style={styles.daySub}>
+              {daySlots[0]?.windowLabel ? `Available ${daySlots[0].windowLabel}. ` : ""}
               {selectedDay.openCount === 0
                 ? "No open times on this day."
                 : selectedDay.openCount === 1
-                  ? "1 time available"
-                  : `${selectedDay.openCount} times available`}
+                  ? "1 start time open"
+                  : `${selectedDay.openCount} start times open`}
             </Text>
             {daySlots.map((slot) => (
-              <TimeRow key={slot.id} slot={slot} onPress={() => slot.bookable && router.push(`/slot/${slot.id}`)} />
+              <TimeRow
+                key={slot.id}
+                slot={slot}
+                onPress={() => {
+                  if (!slot.bookable && !slot.inBasket) return;
+                  void (slot.inBasket ? api.removeFromBasket(slot.id) : api.addToBasket(slot.id)).then(() => load(true));
+                }}
+              />
             ))}
           </View>
         ) : (
@@ -182,6 +198,14 @@ export default function ScheduleScreen() {
           Single lessons can be booked up to 6 weeks ahead and rearranged until 24 hours before they start. Crash courses lock the same way — until 24 hours before day one.
         </Text>
       </ScrollView>
+      {basketCount > 0 ? (
+        <Pressable accessibilityRole="button" onPress={() => router.push("/basket" as never)} style={styles.basketBar}>
+          <Text style={styles.basketText}>
+            {basketCount} lesson{basketCount === 1 ? "" : "s"} · {basketTotal}
+          </Text>
+          <Text style={styles.basketText}>Review</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -290,4 +314,11 @@ const styles = StyleSheet.create({
   price: { fontWeight: "700", color: colors.ink },
   spots: { color: colors.pool, fontSize: 12, fontWeight: "700", textAlign: "right" },
   gone: { color: colors.muted },
+  basketBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 16,
+    backgroundColor: colors.navy,
+  },
+  basketText: { color: colors.white, fontWeight: "700" },
 });

@@ -14,6 +14,7 @@ export type PublicConfig = {
   paymentsMode: "stripe" | "mock";
   calendarConfigured: boolean;
   lessonDurations: number[];
+  lessonPrices: { durationMinutes: number; pricePence: number; priceLabel: string }[];
   courseLengths: number[];
   courseDailyMinutes: number;
   courseMorningWindow: { startHour: number; endHour: number };
@@ -63,6 +64,8 @@ export type Slot = {
   spotsLabel: string;
   bookable: boolean;
   unavailableReason: string | null;
+  inBasket: boolean;
+  windowLabel: string | null;
   soon: boolean;
   enabled: boolean;
   cancelled: boolean;

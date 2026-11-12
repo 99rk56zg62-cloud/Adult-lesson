@@ -5,6 +5,7 @@ import { api, messageOf } from "@/api";
 import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
+import { BOOKING_POLICY } from "@/brand";
 import { colors, heading } from "@/theme";
 import type { Booking, CalendarStatus } from "@/types";
 
@@ -119,6 +120,7 @@ export default function BookingScreen() {
             ) : null}
             <Text style={styles.place}>{place}</Text>
             <Text style={styles.meta}>{meta}</Text>
+            <Text style={styles.body}>{BOOKING_POLICY}</Text>
             {pending ? (
               <>
                 <Banner

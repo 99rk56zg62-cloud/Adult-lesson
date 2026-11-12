@@ -1,5 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { BUSINESS_NAME } from "../../mobile/src/brand.js";
+import {
+  assertStoredSlotOpen,
+  lessonPricePence,
+  listLessonRates,
+  listWindowOffers,
+  listWindows,
+  materializeOffer,
+  parseOfferId,
+  setLessonRate,
+  upsertWindow,
+  type WindowRow,
+} from "./offers.js";
 import type { DatabaseSync } from "node:sqlite";
 import { DateTime } from "luxon";
 import {
@@ -30,6 +42,7 @@ import {
   presentLocation,
   presentRule,
   presentSlot,
+  formatGBP,
 } from "./format.js";
 import type { PaymentProvider } from "./payments.js";
 import { isAllowedReturnUrl } from "./return-url.js";
@@ -149,32 +162,13 @@ export function createService(deps: ServiceDeps) {
     }
   }
 
-  function listVisibleSlots(now: DateTime, filters?: { locationId?: string; durationMinutes?: number; partySize?: number }): SlotDto[] {
+  function listVisibleSlots(
+    now: DateTime,
+    userId: string,
+    filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string },
+  ): SlotDto[] {
     expireStale();
-    materializeEnabledRules(db, now);
-    const occupied = occupiedMap();
-    const params: (string | number)[] = [toUtcIso(now)];
-    let sql = `SELECT * FROM slots
-       WHERE starts_at > ?
-         AND enabled = 1
-         AND cancelled = 0`;
-    if (filters?.locationId) {
-      sql += ` AND location_id = ?`;
-      params.push(filters.locationId);
-    }
-    if (filters?.durationMinutes !== undefined) {
-      sql += ` AND duration_minutes = ?`;
-      params.push(filters.durationMinutes);
-    }
-    if (filters?.partySize !== undefined) {
-      sql += ` AND capacity = ?`;
-      params.push(filters.partySize);
-    }
-    sql += ` ORDER BY starts_at`;
-    const rows = getRows<SlotRow>(db, sql, ...params);
-    return rows
-      .map((slot) => presentSlot(slot, occupied.get(slot.id) ?? 0, now))
-      .filter((slot) => getBookingBlock(fromIso(slot.startsAt), now).ok);
+    return listWindowOffers(db, now, userId, filters);
   }
 
   function listVisibleCourses(now: DateTime, filters?: { locationId?: string; days?: number; partySize?: number }): CourseRunDto[] {
@@ -417,6 +411,7 @@ export function createService(deps: ServiceDeps) {
         paymentsMode: payments.mode,
         calendarConfigured: calendar.configured,
         lessonDurations: [...LESSON_DURATIONS],
+        lessonPrices: listLessonRates(db, nowIso()),
         courseLengths: [...COURSE_LENGTHS],
         courseDailyMinutes: COURSE_DAILY_MINUTES,
         courseMorningWindow: { startHour: COURSE_MORNING_START_HOUR, endHour: COURSE_MORNING_END_HOUR },
@@ -459,7 +454,7 @@ export function createService(deps: ServiceDeps) {
       return toUser(requireUser(userId));
     },
 
-    listSlots(userId: string, filters?: { locationId?: string; durationMinutes?: number; partySize?: number }) {
+    listSlots(userId: string, filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string }) {
       requireUser(userId);
       if (filters?.durationMinutes !== undefined) {
         assertLessonDuration(filters.durationMinutes);
@@ -469,7 +464,7 @@ export function createService(deps: ServiceDeps) {
       }
       if (filters?.locationId) requireLocation(filters.locationId);
       const now = clock();
-      const slots = listVisibleSlots(now, filters);
+      const slots = listVisibleSlots(now, userId, filters);
       const ends = lastBookableDay(now);
       return {
         timezone: ZONE,
@@ -527,7 +522,9 @@ export function createService(deps: ServiceDeps) {
         return this.createCourseBooking(user.id, { courseRunId: input.courseRunId, returnUrl: input.returnUrl });
       }
       expireStale();
-      const slot = requireSlot(input.slotId!);
+      const slot = parseOfferId(input.slotId!)
+        ? materializeOffer(db, clock(), input.slotId!)
+        : requireSlot(input.slotId!);
       assertSlotBookable(slot);
       const block = getBookingBlock(fromIso(slot.starts_at), clock());
       if (!block.ok) throw new AppError(400, block.code, block.message);
@@ -564,7 +561,7 @@ export function createService(deps: ServiceDeps) {
               stripe_session_id, stripe_payment_intent, payment_source, return_url,
               calendar_event_id, created_at, confirmed_at, rescheduled_at
             ) VALUES (?, ?, ?, 'lesson', ?, NULL, 'pending_payment', ?, ?, NULL, NULL, NULL, ?, NULL, ?, NULL, NULL)`,
-          ).run(id, makeReference(db), user.id, slot.id, holdUntil, slot.price_pence, input.returnUrl, stamp);
+          ).run(id, makeReference(db), user.id, slot.id, holdUntil, lessonPricePence(db, slot.duration_minutes, stamp), input.returnUrl, stamp);
         } catch (error) {
           if (isUniqueError(error)) {
             throw new AppError(409, "ALREADY_BOOKED", "You already have this session booked.");
@@ -675,41 +672,55 @@ export function createService(deps: ServiceDeps) {
         throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
       }
 
-      const bookingId = withTransaction(db, () => {
+      const confirmedIds = withTransaction(db, () => {
         expireStale();
-        const booking = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, verified.bookingId!);
-        if (!booking) throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
-        if (booking.status === "confirmed") return booking.id;
-        if (booking.status !== "pending_payment" && booking.status !== "expired") {
-          throw new AppError(409, "BOOKING_CLOSED", "This booking can no longer be confirmed.");
-        }
-        if (booking.kind === "course" && booking.course_run_id) {
-          const run = requireCourseRun(booking.course_run_id);
-          if (booking.status !== "pending_payment") {
-            if (countCourseOccupied(run.id, booking.id) >= run.capacity) {
+        const linked = getRows<BookingRow>(
+          db,
+          `SELECT * FROM bookings WHERE id = ? OR stripe_session_id = ?`,
+          verified.bookingId,
+          sessionId,
+        );
+        const rows = linked.length > 0 ? linked : [getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, verified.bookingId!)].filter(Boolean) as BookingRow[];
+        if (rows.length === 0) throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
+        const source = payments.mode === "stripe" ? "stripe" : "mock";
+        const ids: string[] = [];
+        for (const booking of rows) {
+          if (booking.status === "confirmed") {
+            ids.push(booking.id);
+            continue;
+          }
+          if (booking.status !== "pending_payment" && booking.status !== "expired") {
+            throw new AppError(409, "BOOKING_CLOSED", "This booking can no longer be confirmed.");
+          }
+          if (booking.kind === "course" && booking.course_run_id) {
+            const run = requireCourseRun(booking.course_run_id);
+            if (booking.status !== "pending_payment" && countCourseOccupied(run.id, booking.id) >= run.capacity) {
               throw new AppError(409, "COURSE_TAKEN", COURSE_TAKEN_MESSAGE);
             }
-          }
-        } else if (booking.slot_id) {
-          const slot = requireSlot(booking.slot_id);
-          if (booking.status !== "pending_payment") {
-            if (countOccupied(slot.id, booking.id) >= slot.capacity) {
+          } else if (booking.slot_id) {
+            const slot = requireSlot(booking.slot_id);
+            if (booking.status !== "pending_payment" && countOccupied(slot.id, booking.id) >= slot.capacity) {
               throw new AppError(409, "SLOT_TAKEN", SLOT_TAKEN_MESSAGE);
             }
           }
+          db.prepare(
+            `UPDATE bookings
+             SET status = 'confirmed', confirmed_at = ?, stripe_session_id = ?, stripe_payment_intent = ?, payment_source = ?
+             WHERE id = ?`,
+          ).run(nowIso(), sessionId, verified.paymentIntentId, source, booking.id);
+          ids.push(booking.id);
         }
-        const source = payments.mode === "stripe" ? "stripe" : "mock";
-        db.prepare(
-          `UPDATE bookings
-           SET status = 'confirmed', confirmed_at = ?, stripe_session_id = ?, stripe_payment_intent = ?, payment_source = ?
-           WHERE id = ?`,
-        ).run(nowIso(), sessionId, verified.paymentIntentId, source, booking.id);
-        return booking.id;
+        return ids;
       });
 
-      const booking = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, bookingId)!;
-      const calendarSyncError = await syncCalendar(booking);
-      const fresh = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, bookingId)!;
+      let calendarSyncError: string | null = null;
+      for (const id of confirmedIds) {
+        const row = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, id);
+        if (!row) continue;
+        const syncError = await syncCalendar(row);
+        if (syncError) calendarSyncError = syncError;
+      }
+      const fresh = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, confirmedIds[0])!;
       return { booking: toBookingDto(fresh), calendarSyncError, returnUrl: fresh.return_url };
     },
 
@@ -718,7 +729,7 @@ export function createService(deps: ServiceDeps) {
       expireStale();
       const rows = getRows<BookingRow>(
         db,
-        `SELECT * FROM bookings WHERE user_id = ? AND status IN ('pending_payment', 'confirmed')`,
+        `SELECT * FROM bookings WHERE user_id = ? AND status IN ('pending_payment', 'confirmed', 'cancelled')`,
         userId,
       );
       return rows.map((row) => toBookingDto(row)).sort((a, b) => bookingSortKey(a).localeCompare(bookingSortKey(b)));
@@ -752,6 +763,7 @@ export function createService(deps: ServiceDeps) {
       const current = requireSlot(booking.slot_id!);
       const decision = getRescheduleBlock(fromIso(current.starts_at), clock());
       if (!decision.ok) throw new AppError(409, decision.code, decision.message);
+      if (parseOfferId(input.slotId)) materializeOffer(db, clock(), input.slotId, bookingId);
       if (input.slotId === current.id) throw new AppError(400, "VALIDATION", "Choose a different session.");
       const next = requireSlot(input.slotId);
       assertSlotBookable(next);
@@ -774,6 +786,7 @@ export function createService(deps: ServiceDeps) {
         if (countOccupied(nextAgain.id, again.id) >= nextAgain.capacity) {
           throw new AppError(409, "SLOT_FULL", "That session is full.");
         }
+        assertStoredSlotOpen(db, clock(), nextAgain, again.id);
         const stamp = nowIso();
         try {
           db.prepare(`UPDATE bookings SET slot_id = ?, rescheduled_at = ? WHERE id = ?`).run(nextAgain.id, stamp, again.id);
@@ -958,7 +971,24 @@ export function createService(deps: ServiceDeps) {
       const peeked = (payments as MockPaymentsPeek).peekToken(token);
       const booking = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, peeked.bookingId);
       if (!booking) throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
+      const group = booking.stripe_session_id
+        ? getRows<BookingRow>(db, `SELECT * FROM bookings WHERE stripe_session_id = ?`, booking.stripe_session_id)
+        : [booking];
+      const totalPence = group.reduce((sum, row) => sum + row.price_pence, 0);
       const presented = toBookingDto(booking);
+      if (group.length > 1) {
+        return {
+          token,
+          sessionId: peeked.sessionId,
+          reference: group.map((row) => row.reference).join(", "),
+          title: `${group.length} swimming lessons`,
+          dayLabel: "Several lessons",
+          timeLabel: group.map((row) => formatGBP(row.price_pence)).join(" + "),
+          location: presented.slot?.location ?? presented.course?.location ?? "",
+          priceLabel: formatGBP(totalPence),
+          alreadyPaid: peeked.paid || group.every((row) => row.status === "confirmed"),
+        };
+      }
       if (booking.kind === "course" && presented.course) {
         return {
           token,
@@ -1295,6 +1325,164 @@ export function createService(deps: ServiceDeps) {
       );
       const fresh = requireCourseRun(runId);
       return presentCourseRun(fresh, courseSessions(fresh.id), countCourseOccupied(fresh.id, ""), clock());
+    },
+
+    basket(userId: string) {
+      requireUser(userId);
+      expireStale();
+      const rows = getRows<BookingRow>(
+        db,
+        `SELECT * FROM bookings
+         WHERE user_id = ? AND kind = 'lesson' AND status = 'pending_payment' AND hold_expires_at > ?
+         ORDER BY created_at`,
+        userId,
+        nowIso(),
+      );
+      const items = rows.map((row) => toBookingDto(row));
+      const totalPence = items.reduce((sum, item) => sum + item.pricePence, 0);
+      return { items, totalPence, totalLabel: formatGBP(totalPence) };
+    },
+
+    addToBasket(userId: string, slotId: string) {
+      const user = requireUser(userId);
+      expireStale();
+      const existing = getRow<BookingRow>(
+        db,
+        `SELECT * FROM bookings WHERE user_id = ? AND slot_id = ? AND status = 'pending_payment' AND hold_expires_at > ?`,
+        user.id,
+        slotId,
+        nowIso(),
+      );
+      if (existing) return this.basket(userId);
+      const slot = parseOfferId(slotId) ? materializeOffer(db, clock(), slotId) : requireSlot(slotId);
+      assertSlotBookable(slot);
+      const block = getBookingBlock(fromIso(slot.starts_at), clock());
+      if (!block.ok) throw new AppError(400, block.code, block.message);
+      assertStoredSlotOpen(db, clock(), slot);
+      const price = lessonPricePence(db, slot.duration_minutes, nowIso());
+      const holdUntil = toUtcIso(clock().plus({ milliseconds: HOLD_MS }));
+      const id = randomUUID();
+      const stamp = nowIso();
+      try {
+        db.prepare(
+          `INSERT INTO bookings (
+            id, reference, user_id, kind, slot_id, course_run_id, status, hold_expires_at, price_pence,
+            stripe_session_id, stripe_payment_intent, payment_source, return_url,
+            calendar_event_id, created_at, confirmed_at, rescheduled_at
+          ) VALUES (?, ?, ?, 'lesson', ?, NULL, 'pending_payment', ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL)`,
+        ).run(id, makeReference(db), user.id, slot.id, holdUntil, price, stamp);
+      } catch (error) {
+        if (isUniqueError(error)) throw new AppError(409, "ALREADY_BOOKED", "That lesson is already in your basket.");
+        throw error;
+      }
+      return this.basket(userId);
+    },
+
+    removeFromBasket(userId: string, slotId: string) {
+      requireUser(userId);
+      db.prepare(
+        `UPDATE bookings SET status = 'expired'
+         WHERE user_id = ? AND slot_id = ? AND status = 'pending_payment'`,
+      ).run(userId, slotId);
+      return this.basket(userId);
+    },
+
+    async checkoutBasket(userId: string, returnUrl: string): Promise<CheckoutResult> {
+      const user = requireUser(userId);
+      assertReturnUrl(returnUrl);
+      expireStale();
+      const rows = getRows<BookingRow>(
+        db,
+        `SELECT * FROM bookings
+         WHERE user_id = ? AND kind = 'lesson' AND status = 'pending_payment' AND hold_expires_at > ?
+         ORDER BY created_at`,
+        userId,
+        nowIso(),
+      );
+      if (rows.length === 0) throw new AppError(400, "VALIDATION", "Your basket is empty.");
+      for (const row of rows) {
+        const slot = requireSlot(row.slot_id!);
+        assertSlotBookable(slot);
+        const block = getBookingBlock(fromIso(slot.starts_at), clock());
+        if (!block.ok) throw new AppError(400, block.code, block.message);
+        assertStoredSlotOpen(db, clock(), slot, row.id);
+        const price = lessonPricePence(db, slot.duration_minutes, nowIso());
+        db.prepare(`UPDATE bookings SET price_pence = ?, return_url = ?, hold_expires_at = ? WHERE id = ?`).run(
+          price,
+          returnUrl,
+          toUtcIso(clock().plus({ milliseconds: HOLD_MS })),
+          row.id,
+        );
+      }
+      const fresh = rows.map((row) => getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, row.id)!);
+      const lines = fresh.map((row) => {
+        const presented = toBookingDto(row);
+        return {
+          title: `${presented.slot?.durationMinutes ?? ""} min lesson`,
+          description: `${presented.slot?.dayLabel ?? ""} ${presented.slot?.startTimeLabel ?? ""} · ${presented.slot?.partyLabel ?? ""}`,
+          amountPence: row.price_pence,
+        };
+      });
+      const total = lines.reduce((sum, line) => sum + line.amountPence, 0);
+      const session = await payments.createCheckout({
+        bookingId: fresh[0]!.id,
+        amountPence: total,
+        title: fresh.length === 1 ? lines[0]!.title : `${fresh.length} swimming lessons`,
+        description: lines.map((line) => line.description).join("; "),
+        customerEmail: user.email,
+        reference: fresh.map((row) => row.reference).join(", "),
+        lines,
+      });
+      for (const row of fresh) {
+        db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE id = ?`).run(session.id, row.id);
+      }
+      const booking = toBookingDto(getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, fresh[0]!.id)!);
+      return { booking, checkoutUrl: session.url, sessionId: session.id };
+    },
+
+    listAdminWindows(): WindowRow[] {
+      return listWindows(db);
+    },
+
+    saveAdminWindow(input: {
+      id?: string;
+      locationId: string;
+      weekday: number;
+      startHour: number;
+      startMinute: number;
+      endHour: number;
+      endMinute: number;
+    }) {
+      requireLocation(input.locationId);
+      return upsertWindow(db, input.id ?? randomUUID(), input, nowIso());
+    },
+
+    setAdminWindowEnabled(id: string, enabled: boolean) {
+      const window = getRow<WindowRow>(db, `SELECT * FROM availability_windows WHERE id = ?`, id);
+      if (!window) throw new AppError(404, "NOT_FOUND", "That availability window doesn't exist.");
+      db.prepare(`UPDATE availability_windows SET enabled = ?, updated_at = ? WHERE id = ?`).run(enabled ? 1 : 0, nowIso(), id);
+      return getRow<WindowRow>(db, `SELECT * FROM availability_windows WHERE id = ?`, id)!;
+    },
+
+    listAdminLessonRates() {
+      return listLessonRates(db, nowIso());
+    },
+
+    saveAdminLessonRates(prices: { durationMinutes: number; pricePence: number }[]) {
+      for (const price of prices) setLessonRate(db, price.durationMinutes, price.pricePence, nowIso());
+      return listLessonRates(db, nowIso());
+    },
+
+    listAdminBookingNotes(): { reference: string; status: string; when: string; priceLabel: string }[] {
+      return getRows<BookingRow>(
+        db,
+        `SELECT * FROM bookings WHERE kind = 'lesson' AND status IN ('confirmed', 'cancelled') ORDER BY created_at DESC LIMIT 40`,
+      ).map((row) => ({
+        reference: row.reference,
+        status: row.status,
+        when: row.slot_id ? (getRow<SlotRow>(db, `SELECT * FROM slots WHERE id = ?`, row.slot_id)?.starts_at ?? "") : "",
+        priceLabel: formatGBP(row.price_pence),
+      }));
     },
   };
 }

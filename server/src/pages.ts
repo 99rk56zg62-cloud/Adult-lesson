@@ -1,3 +1,4 @@
+import { BOOKING_POLICY } from "../../mobile/src/brand.js";
 import { BUSINESS_NAME, brandCss, brandFontLinks } from "./brand-style.js";
 
 export function esc(value: string): string {
@@ -71,6 +72,7 @@ export function mockCheckoutPage(input: {
        <input type="hidden" name="token" value="${esc(input.token)}" />
        ${action}
      </form>
+     <p class="note muted">${esc(BOOKING_POLICY)}</p>
      <p class="note muted">No card is charged. Use Stripe test mode when you want a real Checkout payment.</p>`,
   );
 }

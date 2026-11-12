@@ -333,9 +333,12 @@ describe("lido api", { concurrency: 1 }, () => {
 
       const open = await payFor(ctx, token, later.id);
       assert.equal(open.rescheduleAllowed, true);
-      const target = slots.find((slot) => slot.bookable && !slot.soon && slot.id !== later.id && slot.spotsLeft >= 1);
+      const target = slots.find(
+        (slot) => slot.bookable && !slot.soon && slot.id !== later.id && slot.startsAt >= later.endsAt,
+      );
       assert.ok(target);
-      const before = await listSlots(ctx, token);
+      const other = await register(ctx);
+      const before = await listSlots(ctx, other.token);
       const moved = await api(ctx.base, `/api/bookings/${open.id}/reschedule`, {
         method: "POST",
         token,
@@ -344,13 +347,13 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.equal(moved.status, 200, moved.text);
       assert.equal(moved.json.booking.slot!.id, target.id);
       assert.match(moved.json.booking.googleCalendarUrl, /calendar\.google\.com/);
-      const after = await listSlots(ctx, token);
+      const after = await listSlots(ctx, other.token);
       const oldBefore = before.find((slot) => slot.id === later.id)!;
       const oldAfter = after.find((slot) => slot.id === later.id)!;
-      const newBefore = before.find((slot) => slot.id === target.id)!;
       const newAfter = after.find((slot) => slot.id === target.id)!;
-      assert.equal(oldAfter.spotsLeft, oldBefore.spotsLeft + 1);
-      assert.equal(newAfter.spotsLeft, newBefore.spotsLeft - 1);
+      assert.equal(oldBefore.bookable, false);
+      assert.equal(oldAfter.bookable, true);
+      assert.equal(newAfter.bookable, false);
 
       const exactStart = ctx.clock().plus({ milliseconds: RESCHEDULE_CUTOFF_MS }).toUTC().toISO()!;
       const exact = await api(ctx.base, "/api/admin/slots", {
@@ -568,26 +571,20 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.ok(listed.json.days.every((day: { selectable: boolean; openCount: number }) => !day.selectable || day.openCount > 0));
       assert.ok(listed.json.slots.every((slot: SlotDto) => slot.bookable || slot.spotsLeft === 0));
 
-      const created = await api(ctx.base, "/api/admin/rules", {
+      const created = await api(ctx.base, "/api/admin/windows", {
         method: "POST",
         headers: { "x-admin-token": "test-admin" },
         body: {
           locationId: FAREHAM_LOCATION_ID,
           weekday: 5,
-          hour: 11,
-          minute: 0,
-          durationMinutes: 60,
-          capacity: 2,
-          pricePence: 3200,
-          title: "Friday lesson",
-          instructor: "Helen Ward",
-          blurb: "A calm Friday session for adults building water confidence.",
+          startHour: 11,
+          startMinute: 0,
+          endHour: 13,
+          endMinute: 0,
         },
       });
       assert.equal(created.status, 201, created.text);
-      assert.equal(created.json.rule.weekdayLabel, "Friday");
-      assert.equal(created.json.rule.partyLabel, "1-to-2");
-      assert.equal("level" in created.json.rule, false);
+      assert.equal(created.json.window.weekday, 5);
 
       const tooBig = await api(ctx.base, "/api/admin/rules", {
         method: "POST",
@@ -607,28 +604,20 @@ describe("lido api", { concurrency: 1 }, () => {
       });
       assert.equal(tooBig.status, 400);
 
-      const after = await listSlots(ctx, token);
-      const friday = after.filter((slot) => slot.title === "Friday lesson");
+      const after = await listSlots(ctx, token, { durationMinutes: 60, partySize: 1 });
+      const friday = after.filter((slot) => slot.dayLabel.startsWith("Friday") && slot.startTimeLabel === "11:00am");
       assert.ok(friday.length > 0);
-      assert.ok(friday.every((slot) => slot.dateKey && slot.bookable));
+      assert.ok(friday.every((slot) => slot.bookable));
+      assert.equal(friday[0]!.pricePence, 6000);
 
-      const cancel = await api(ctx.base, `/api/admin/slots/${friday[0]!.id}`, {
-        method: "PATCH",
-        headers: { "x-admin-token": "test-admin" },
-        body: { cancelled: true },
-      });
-      assert.equal(cancel.status, 200, cancel.text);
-      const hidden = await listSlots(ctx, token);
-      assert.equal(hidden.some((slot) => slot.id === friday[0]!.id), false);
-
-      const disabled = await api(ctx.base, `/api/admin/rules/${created.json.rule.id}/enabled`, {
+      const disabled = await api(ctx.base, `/api/admin/windows/${created.json.window.id}/enabled`, {
         method: "POST",
         headers: { "x-admin-token": "test-admin" },
         body: { enabled: false },
       });
       assert.equal(disabled.status, 200);
-      const withoutFriday = await listSlots(ctx, token);
-      assert.equal(withoutFriday.some((slot) => slot.title === "Friday lesson"), false);
+      const withoutFriday = await listSlots(ctx, token, { durationMinutes: 60, partySize: 1 });
+      assert.equal(withoutFriday.some((slot) => slot.startTimeLabel === "11:00am" && slot.dayLabel.startsWith("Friday")), false);
 
       const form = await fetch(`${ctx.base}/admin/login`, {
         method: "POST",

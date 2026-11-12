@@ -226,6 +226,8 @@ export function adminLocationsPage(input: {
 export function adminAvailabilityPage(input: {
   rules: AvailabilityRuleDto[];
   locations: LocationDto[];
+  windows?: { id: string; location_id: string; weekday: number; start_hour: number; start_minute: number; end_hour: number; end_minute: number; enabled: number }[];
+  rates?: { durationMinutes: number; pricePence: number }[];
   editId?: string | null;
   notice?: string | null;
 }): string {
@@ -250,9 +252,53 @@ export function adminAvailabilityPage(input: {
     })
     .join("");
 
+  const rate30 = ((input.rates?.find((rate) => rate.durationMinutes === 30)?.pricePence ?? 3000) / 100).toFixed(2);
+  const rate60 = ((input.rates?.find((rate) => rate.durationMinutes === 60)?.pricePence ?? 6000) / 100).toFixed(2);
+  const windowRows = (input.windows ?? [])
+    .map((window) => {
+      const place = input.locations.find((location) => location.id === window.location_id);
+      const day = WEEKDAY_LABELS[window.weekday] ?? "";
+      return `<tr>
+        <td>${esc(day)}<br />${String(window.start_hour).padStart(2, "0")}:${String(window.start_minute).padStart(2, "0")}–${String(window.end_hour).padStart(2, "0")}:${String(window.end_minute).padStart(2, "0")}</td>
+        <td>${esc(place?.name ?? window.location_id)}</td>
+        <td><span class="pill ${window.enabled ? "on" : "off"}">${window.enabled ? "On" : "Off"}</span></td>
+        <td>
+          <form method="post" action="/admin/windows/${encodeURIComponent(window.id)}/toggle">
+            <input type="hidden" name="enabled" value="${window.enabled ? "0" : "1"}" />
+            <button class="secondary" type="submit">${window.enabled ? "Turn off" : "Turn on"}</button>
+          </form>
+        </td>
+      </tr>`;
+    })
+    .join("");
+  const weekdayOptions = WEEKDAY_LABELS.map((label, value) => (value ? `<option value="${value}">${label}</option>` : "")).join("");
   return adminShell(
     "Weekly availability",
-    `${editing ? ruleForm(input.locations, `/admin/rules/${encodeURIComponent(editing.id)}`, editing, "Update weekly class") : ruleForm(input.locations, "/admin/rules", undefined, "Add weekly class")}
+    `<div class="card">
+      <h2>Lesson prices</h2>
+      <p class="muted">A 30 minute lesson and a 60 minute lesson use these prices for both 1-to-1 and 1-to-2.</p>
+      <form method="post" action="/admin/lesson-prices" class="grid">
+        <div><label>30 minutes (£)</label><input name="price30" type="number" min="0.5" step="0.01" required value="${rate30}" /></div>
+        <div><label>60 minutes (£)</label><input name="price60" type="number" min="0.5" step="0.01" required value="${rate60}" /></div>
+        <div style="align-self:end"><button type="submit">Save prices</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Availability window</h2>
+      <p class="muted">Set the hours a location is open. Customers choose a 30 or 60 minute start on the hour or half hour inside the window.</p>
+      <form method="post" action="/admin/windows" class="grid">
+        <div><label>Location</label><select name="locationId" required>${locationOptions(input.locations)}</select></div>
+        <div><label>Day</label><select name="weekday">${weekdayOptions}</select></div>
+        <div><label>From</label><input name="start" type="time" value="06:00" required /></div>
+        <div><label>To</label><input name="end" type="time" value="09:00" required /></div>
+        <div style="align-self:end"><button type="submit">Save window</button></div>
+      </form>
+      <table>
+        <thead><tr><th>When</th><th>Where</th><th>Status</th><th></th></tr></thead>
+        <tbody>${windowRows || `<tr><td colspan="4" class="muted">No windows yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+    ${editing ? ruleForm(input.locations, `/admin/rules/${encodeURIComponent(editing.id)}`, editing, "Update weekly class") : ""}
      <div class="card">
        <h2>Current weekly classes</h2>
        <p class="muted">Single lessons are 30 or 60 minutes, and private: 1-to-1 or 1-to-2. Turning a class off hides future sessions from the customer calendar.</p>

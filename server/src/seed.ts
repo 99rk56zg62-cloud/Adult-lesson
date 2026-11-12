@@ -5,10 +5,12 @@ import { hashPassword } from "./auth.js";
 import {
   COURSE_DAILY_MINUTES,
   COURSE_PACKAGE_PRICES,
+  LESSON_DURATION_PRICES,
   materializeCourseRun,
   materializeEnabledRules,
   upsertRule,
 } from "./availability.js";
+import { ensureLessonRates, offerId, upsertWindow } from "./offers.js";
 import { getRow } from "./db.js";
 import { toUtcIso, ZONE } from "./time.js";
 
@@ -37,7 +39,7 @@ const DEFAULT_RULES = [
     minute: 0,
     durationMinutes: 30,
     capacity: 1,
-    pricePence: 2200,
+    pricePence: LESSON_DURATION_PRICES[30],
     title: "Adult lesson",
     blurb: BLURBS.lesson,
     instructor: "Sam Okonkwo",
@@ -49,7 +51,7 @@ const DEFAULT_RULES = [
     minute: 30,
     durationMinutes: 60,
     capacity: 2,
-    pricePence: 3200,
+    pricePence: LESSON_DURATION_PRICES[60],
     title: "Adult lesson",
     blurb: BLURBS.lesson,
     instructor: "Priya Shah",
@@ -61,7 +63,7 @@ const DEFAULT_RULES = [
     minute: 15,
     durationMinutes: 30,
     capacity: 1,
-    pricePence: 2000,
+    pricePence: LESSON_DURATION_PRICES[30],
     title: "Lunchtime lesson",
     blurb: BLURBS.lunchtime,
     instructor: "Helen Ward",
@@ -73,7 +75,7 @@ const DEFAULT_RULES = [
     minute: 0,
     durationMinutes: 60,
     capacity: 2,
-    pricePence: 3200,
+    pricePence: LESSON_DURATION_PRICES[60],
     title: "Adult lesson",
     blurb: BLURBS.lesson,
     instructor: "Sam Okonkwo",
@@ -85,7 +87,7 @@ const DEFAULT_RULES = [
     minute: 0,
     durationMinutes: 30,
     capacity: 1,
-    pricePence: 2400,
+    pricePence: LESSON_DURATION_PRICES[30],
     title: "Weekend lesson",
     blurb: BLURBS.weekend,
     instructor: "Helen Ward",
@@ -97,7 +99,7 @@ const DEFAULT_RULES = [
     minute: 0,
     durationMinutes: 60,
     capacity: 2,
-    pricePence: 3600,
+    pricePence: LESSON_DURATION_PRICES[60],
     title: "Weekend lesson",
     blurb: BLURBS.weekend,
     instructor: "Priya Shah",
@@ -149,12 +151,14 @@ export function seedDatabase(
   const now = clock();
   const nowIso = toUtcIso(now);
   ensureFarehamLocation(db, now);
+  seedWindows(db, now);
   seedDefaultRules(db, now);
   materializeEnabledRules(db, now);
   seedCourseProducts(db, now);
   seedCourseRuns(db, now);
   ensureSoonSlot(db, now, nowIso);
   ensureFullSlot(db, now, nowIso, options.bcryptRounds);
+  ensureBlockedWindowTime(db, now, options.bcryptRounds);
   if (options.demo) {
     ensureDemoBooking(db, now, nowIso, options.bcryptRounds);
   }
@@ -166,6 +170,26 @@ function ensureFarehamLocation(db: DatabaseSync, now: DateTime) {
     `INSERT OR IGNORE INTO locations (id, name, address, enabled, created_at, updated_at)
      VALUES (?, ?, ?, 1, ?, ?)`,
   ).run(FAREHAM_LOCATION_ID, "West Street Fareham", "153 West Street, Fareham PO16 0EL", stamp, stamp);
+}
+
+function seedWindows(db: DatabaseSync, now: DateTime) {
+  ensureLessonRates(db, toUtcIso(now));
+  for (let weekday = 1; weekday <= 7; weekday += 1) {
+    upsertWindow(
+      db,
+      `window-fareham-${weekday}`,
+      {
+        locationId: FAREHAM_LOCATION_ID,
+        weekday,
+        startHour: 6,
+        startMinute: 0,
+        endHour: 9,
+        endMinute: 0,
+        enabled: true,
+      },
+      toUtcIso(now),
+    );
+  }
 }
 
 function seedDefaultRules(db: DatabaseSync, now: DateTime) {
@@ -330,7 +354,7 @@ function ensureSoonSlot(db: DatabaseSync, now: DateTime, nowIso: string) {
     toUtcIso(starts.plus({ minutes: 30 })),
     30,
     1,
-    2200,
+    LESSON_DURATION_PRICES[30],
     "Adult lesson",
     "",
     template.blurb,
@@ -366,7 +390,7 @@ function ensureFullSlot(db: DatabaseSync, now: DateTime, nowIso: string, rounds:
     toUtcIso(starts.plus({ minutes: 60 })),
     60,
     1,
-    3200,
+    LESSON_DURATION_PRICES[60],
     "Stroke workshop",
     "",
     BLURBS.lesson,
@@ -375,7 +399,41 @@ function ensureFullSlot(db: DatabaseSync, now: DateTime, nowIso: string, rounds:
     "Priya Shah",
   );
   ensureUser(db, HOLD_USER_ID, "holds@lido.invalid", "Capacity hold", hashPassword(randomBytes(18).toString("hex"), rounds), now);
-  insertConfirmedLesson(db, HOLD_USER_ID, slotId, 3200, now, "seed");
+  insertConfirmedLesson(db, HOLD_USER_ID, slotId, LESSON_DURATION_PRICES[60], now, "seed");
+}
+
+function ensureBlockedWindowTime(db: DatabaseSync, now: DateTime, rounds: number) {
+  const local = now.setZone(ZONE).plus({ days: 3 }).set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
+  const slotId = offerId(FAREHAM_LOCATION_ID, local.toFormat("yyyy-MM-dd"), 8, 0, 30, 1);
+  const place = getRow<{ name: string; address: string }>(db, `SELECT name, address FROM locations WHERE id = ?`, FAREHAM_LOCATION_ID);
+  if (!place) return;
+  const existing = getRow<{ id: string }>(db, `SELECT id FROM slots WHERE id = ?`, slotId);
+  if (!existing) {
+    db.prepare(insertSlot).run(
+      slotId,
+      null,
+      FAREHAM_LOCATION_ID,
+      toUtcIso(local),
+      toUtcIso(local.plus({ minutes: 30 })),
+      30,
+      1,
+      LESSON_DURATION_PRICES[30],
+      "Adult lesson",
+      "",
+      BLURBS.lesson,
+      place.name,
+      place.address,
+      "Your teacher",
+    );
+  }
+  const held = getRow<{ id: string }>(
+    db,
+    `SELECT id FROM bookings WHERE slot_id = ? AND status = 'confirmed'`,
+    slotId,
+  );
+  if (held) return;
+  ensureUser(db, HOLD_USER_ID, "holds@lido.invalid", "Capacity hold", hashPassword(randomBytes(18).toString("hex"), rounds), now);
+  insertConfirmedLesson(db, HOLD_USER_ID, slotId, LESSON_DURATION_PRICES[30], now, "seed");
 }
 
 function ensureDemoBooking(db: DatabaseSync, now: DateTime, nowIso: string, rounds: number) {

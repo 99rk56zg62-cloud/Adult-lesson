@@ -36,6 +36,7 @@ export default function RegisterScreen() {
 
   return (
     <Phone>
+      <TopBar title="Create an account" subtitle="Lessons are kept against this sign-in." back />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
           {error ? <Banner tone="danger" text={error} /> : null}

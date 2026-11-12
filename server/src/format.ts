@@ -127,6 +127,8 @@ export function presentSlot(slot: SlotRow, occupied: number, now: DateTime): Slo
     spotsLabel,
     bookable: unavailableReason === null,
     unavailableReason,
+    inBasket: false,
+    windowLabel: null,
     soon: startsAt.toMillis() > now.toMillis() && startsAt.toMillis() - now.toMillis() < RESCHEDULE_CUTOFF_MS,
     enabled,
     cancelled,

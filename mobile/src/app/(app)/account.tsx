@@ -71,6 +71,7 @@ export default function AccountScreen() {
 
   return (
     <View style={styles.screen}>
+      <TopBar title="Account" subtitle={user ? user.email : ""} />
       <ScrollView contentContainerStyle={styles.content}>
         {notice ? <Banner tone={one(params.calendar) === "connected" ? "ok" : "warn"} text={notice} /> : null}
         {error ? <Banner tone="danger" text={error} /> : null}

@@ -183,7 +183,36 @@ function migrate(db: DatabaseSync) {
       token TEXT NOT NULL UNIQUE,
       paid INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS availability_windows (
+      id TEXT PRIMARY KEY,
+      location_id TEXT NOT NULL,
+      weekday INTEGER NOT NULL,
+      start_hour INTEGER NOT NULL,
+      start_minute INTEGER NOT NULL,
+      end_hour INTEGER NOT NULL,
+      end_minute INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (location_id) REFERENCES locations(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS lesson_rates (
+      duration_minutes INTEGER PRIMARY KEY,
+      price_pence INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
   `);
+
+  ensureColumn(db, "bookings", "cancelled_at", "TEXT");
 
   ensureColumn(db, "slots", "enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "slots", "cancelled", "INTEGER NOT NULL DEFAULT 0");

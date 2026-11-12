@@ -64,6 +64,7 @@ export default function SlotScreen() {
 
   return (
     <Phone>
+      <TopBar title={slot?.title ?? "Lesson"} subtitle={slot ? `${slot.dayLabel} · ${slot.timeLabel}` : " "} back />
       {!slot && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
       {error ? (
         <View style={styles.pad}>

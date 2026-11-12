@@ -94,6 +94,14 @@ export const api = {
   booking: (id: string) => request<{ booking: Booking }>(`/api/bookings/${id}`),
   createBooking: (input: { slotId?: string; courseRunId?: string; returnUrl: string }) =>
     request<CheckoutResponse>("/api/bookings", { method: "POST", body: input }),
+  basket: () => request<{ items: Booking[]; totalPence: number; totalLabel: string }>("/api/basket"),
+  addToBasket: (slotId: string) =>
+    request<{ items: Booking[]; totalPence: number; totalLabel: string }>("/api/basket", { method: "POST", body: { slotId } }),
+  removeFromBasket: (slotId: string) =>
+    request<{ items: Booking[]; totalPence: number; totalLabel: string }>(`/api/basket/${encodeURIComponent(slotId)}`, {
+      method: "DELETE",
+    }),
+  checkoutBasket: (returnUrl: string) => request<CheckoutResponse>("/api/basket/checkout", { method: "POST", body: { returnUrl } }),
   refreshCheckout: (id: string, returnUrl: string) =>
     request<CheckoutResponse>(`/api/bookings/${id}/checkout`, { method: "POST", body: { returnUrl } }),
   confirm: (sessionId: string) =>

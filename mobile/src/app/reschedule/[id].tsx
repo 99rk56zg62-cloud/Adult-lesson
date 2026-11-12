@@ -89,6 +89,7 @@ export default function RescheduleScreen() {
 
   return (
     <Phone>
+      <TopBar title={isCourse ? "New course run" : "New time"} subtitle="You won't be charged again." back />
       {!booking && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 28 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}

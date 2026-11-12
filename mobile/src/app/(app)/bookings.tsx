@@ -2,6 +2,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
+import { BOOKING_POLICY } from "@/brand";
 import { Banner, Button, TopBar } from "@/components/ui";
 import { colors, heading } from "@/theme";
 import type { Booking } from "@/types";
@@ -36,10 +37,12 @@ export default function BookingsScreen() {
 
   return (
     <View style={styles.screen}>
+      <TopBar title="My lessons" subtitle="Move a lesson until 24 hours before it starts." />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.pool} onRefresh={() => { setRefreshing(true); void load(); }} />}
         contentContainerStyle={styles.content}
       >
+        <Text style={styles.policy}>{BOOKING_POLICY}</Text>
         {error ? <Banner tone="danger" text={error} /> : null}
         {loading && bookings.length === 0 ? <ActivityIndicator color={colors.pool} style={{ marginTop: 24 }} /> : null}
         {!loading && bookings.length === 0 ? (
@@ -73,9 +76,10 @@ function BookingRow({ booking }: { booking: Booking }) {
   const where = isCourse ? booking.course?.location : booking.slot?.location;
 
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push(`/booking/${booking.id}`)} style={styles.card}>
+    <View style={styles.card}>
       <View style={[styles.bar, { backgroundColor: colors.pool }]} />
       <View style={styles.body}>
+        <Pressable accessibilityRole="button" onPress={() => router.push(`/booking/${booking.id}`)}>
         <Text style={styles.kicker}>{pending ? "Payment not finished" : `${booking.reference}${isCourse ? " · Course" : ""}`}</Text>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.meta}>
@@ -83,9 +87,16 @@ function BookingRow({ booking }: { booking: Booking }) {
           {party ? `\n${party}` : ""}
           {where ? `\n${where}` : ""}
         </Text>
+        </Pressable>
         {pending && booking.holdExpiresLabel ? <Text style={styles.hold}>Held until {booking.holdExpiresLabel}</Text> : null}
+        {booking.status === "confirmed" && booking.rescheduleAllowed ? (
+          <View style={styles.actions}>
+            <Button label="Rearrange" variant="secondary" onPress={() => router.push(`/reschedule/${booking.id}`)} />
+          </View>
+        ) : null}
+        {booking.status === "confirmed" && !booking.rescheduleAllowed ? <Text style={styles.hold}>{booking.rescheduleBlockedReason}</Text> : null}
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -100,6 +111,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted, lineHeight: 18 },
   hold: { color: colors.warn, fontWeight: "600", marginTop: 4 },
+  actions: { marginTop: 8 },
+  policy: { color: colors.ink, lineHeight: 20, backgroundColor: colors.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line },
   empty: { gap: 12, paddingTop: 12 },
   emptyTitle: { fontFamily: heading, fontSize: 28, fontWeight: "700", color: colors.ink },
   emptyBody: { color: colors.muted, lineHeight: 20 },

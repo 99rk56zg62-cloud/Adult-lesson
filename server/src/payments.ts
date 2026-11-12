@@ -5,6 +5,8 @@ import type { AppConfig } from "./config.js";
 import { getRow } from "./db.js";
 import { AppError } from "./errors.js";
 
+export type CheckoutLine = { title: string; description: string; amountPence: number };
+
 export type CheckoutInput = {
   bookingId: string;
   amountPence: number;
@@ -12,6 +14,7 @@ export type CheckoutInput = {
   description: string;
   customerEmail: string;
   reference: string;
+  lines?: CheckoutLine[];
 };
 
 export type PaidSession = {
@@ -119,19 +122,16 @@ export function createStripePaymentsFromClient(
           client_reference_id: input.bookingId,
           locale: "en-GB",
           metadata: { bookingId: input.bookingId, reference: input.reference },
-          line_items: [
-            {
+          line_items: (input.lines?.length ? input.lines : [{ title: input.title, description: input.description, amountPence: input.amountPence }]).map(
+            (line) => ({
               quantity: 1,
               price_data: {
                 currency: "gbp",
-                unit_amount: input.amountPence,
-                product_data: {
-                  name: input.title,
-                  description: input.description,
-                },
+                unit_amount: line.amountPence,
+                product_data: { name: line.title, description: line.description },
               },
-            },
-          ],
+            }),
+          ),
           success_url: `${config.apiPublicUrl}/api/payments/return?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${config.apiPublicUrl}/api/payments/cancelled?booking_id=${encodeURIComponent(input.bookingId)}`,
         });

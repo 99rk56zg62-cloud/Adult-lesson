@@ -15,6 +15,11 @@ export const COURSE_PACKAGE_PRICES: Record<3 | 4 | 5, number> = {
   4: 44900,
   5: 54900,
 };
+/** Default ad-hoc prices in pence. Admin can change the stored rates later. */
+export const LESSON_DURATION_PRICES: Record<30 | 60, number> = {
+  30: 3000,
+  60: 6000,
+};
 export const COURSE_MORNING_START_HOUR = 6;
 export const COURSE_MORNING_END_HOUR = 9;
 export const MATERIALIZE_WEEKS = 8;

@@ -64,6 +64,7 @@ export default function CourseScreen() {
 
   return (
     <Phone>
+      <TopBar title={course?.title ?? "Crash course"} subtitle={course?.dateSummary ?? " "} back />
       {!course && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
       {error ? (
         <View style={styles.pad}>
