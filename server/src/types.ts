@@ -8,6 +8,10 @@ export type UserRow = {
   password_hash: string;
   google_refresh_token: string | null;
   google_email: string | null;
+  stripe_customer_id: string | null;
+  stripe_payment_method_id: string | null;
+  push_opt_out: number | null;
+  expo_push_token: string | null;
   created_at: string;
 };
 
@@ -124,6 +128,16 @@ export type BookingRow = {
   created_at: string;
   confirmed_at: string | null;
   rescheduled_at: string | null;
+  deposit_pence: number | null;
+  balance_pence: number | null;
+  balance_due_at: string | null;
+  balance_status: string | null;
+  balance_paid_at: string | null;
+  balance_reminder_sent_at: string | null;
+  stripe_customer_id: string | null;
+  stripe_payment_method_id: string | null;
+  course_goal: string | null;
+  course_comments: string | null;
 };
 
 export type UserDto = {
@@ -289,6 +303,17 @@ export type BookingDto = {
   googleCalendarUrl: string | null;
   slot: SlotDto | null;
   course: CourseRunDto | null;
+  depositPence: number;
+  depositLabel: string;
+  balancePence: number;
+  balanceLabel: string;
+  balanceDueAt: string | null;
+  balanceDueLabel: string | null;
+  balanceStatus: string;
+  payTodayPence: number;
+  payTodayLabel: string;
+  courseGoal: string | null;
+  courseComments: string | null;
 };
 
 export type PublicConfig = {

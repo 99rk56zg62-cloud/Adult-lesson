@@ -5,7 +5,7 @@ import { getRows } from "./db.js";
 import { AppError } from "./errors.js";
 import { clockLabel, formatGBP } from "./format.js";
 import { windowStarts, type WindowRow } from "./offers.js";
-import { getBookingBlock, lastBookableDay } from "./rules.js";
+import { getCourseBookingBlock, lastCourseBookableDay } from "./rules.js";
 import { fromIso, toUtcIso, ZONE } from "./time.js";
 
 type CourseLength = 3 | 4 | 5;
@@ -75,7 +75,7 @@ export function listCourseDayOptions(
   const busy = busyRanges(db, toUtcIso(now));
   const windows = windowsFor(db, input.locationId);
   const start = now.setZone(ZONE).startOf("day");
-  const end = lastBookableDay(now);
+  const end = lastCourseBookableDay(now);
   const options: PlannedSession[] = [];
   for (let day = start; day <= end; day = day.plus({ days: 1 })) {
     const dateKey = day.toFormat("yyyy-MM-dd");
@@ -83,7 +83,7 @@ export function listCourseDayOptions(
     for (const startAt of startsOnDay(day, windows)) {
       if (startAt.toMillis() <= now.toMillis()) continue;
       const session = describe(startAt);
-      if (!getBookingBlock(startAt, now).ok) continue;
+      if (!getCourseBookingBlock(startAt, now).ok) continue;
       if (overlaps(busy, session)) continue;
       options.push(session);
     }
@@ -139,7 +139,7 @@ export function assertSessionOpen(
     millisecond: 0,
   });
   if (!startAt.isValid) throw new AppError(400, "VALIDATION", "Choose a valid day.");
-  const block = getBookingBlock(startAt, now);
+  const block = getCourseBookingBlock(startAt, now);
   if (!block.ok) throw new AppError(400, block.code, block.message);
   const windows = windowsFor(db, locationId).filter((window) => window.weekday === startAt.weekday);
   const startMin = choice.hour * 60 + choice.minute;
@@ -161,7 +161,7 @@ function consecutiveRuns(db: DatabaseSync, now: DateTime, locationId: string, da
   const busy = busyRanges(db, toUtcIso(now));
   const windows = windowsFor(db, locationId);
   const start = now.setZone(ZONE).startOf("day");
-  const end = lastBookableDay(now);
+  const end = lastCourseBookableDay(now);
   const matches: PlannedSession[][] = [];
   for (let day = start; day.plus({ days: days - 1 }) <= end; day = day.plus({ days: 1 })) {
     const clocks = new Map<string, { hour: number; minute: number }>();
@@ -175,7 +175,7 @@ function consecutiveRuns(db: DatabaseSync, now: DateTime, locationId: string, da
       for (let offset = 0; offset < days; offset += 1) {
         const date = day.plus({ days: offset });
         const startAt = date.set({ hour: clock.hour, minute: clock.minute, second: 0, millisecond: 0 });
-        if (startAt.toMillis() <= now.toMillis() || !getBookingBlock(startAt, now).ok) {
+        if (startAt.toMillis() <= now.toMillis() || !getCourseBookingBlock(startAt, now).ok) {
           ok = false;
           break;
         }

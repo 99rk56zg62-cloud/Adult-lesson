@@ -133,6 +133,36 @@ export default function BookingScreen() {
             <Text style={styles.place}>{place}</Text>
             <Text style={styles.meta}>{meta}</Text>
             <Text style={styles.body}>{BOOKING_POLICY}</Text>
+            {booking.balanceStatus === "overdue" ? (
+              <Banner tone="warn" text={`The balance of ${booking.balanceLabel} is overdue.`} />
+            ) : null}
+            {booking.balanceStatus === "scheduled" && booking.balanceDueLabel ? (
+              <Text style={styles.body}>
+                Balance {booking.balanceLabel} will be taken on {booking.balanceDueLabel}. The deposit is non-refundable.
+              </Text>
+            ) : null}
+            {booking.balanceStatus === "overdue" ? (
+              <Button
+                label={busy ? "Opening payment…" : `Pay balance ${booking.balanceLabel}`}
+                disabled={busy}
+                onPress={() => {
+                  setBusy(true);
+                  void api
+                    .balanceCheckout(booking.id, paymentReturnUrl())
+                    .then((checkout) =>
+                      runCheckout({
+                        checkoutUrl: checkout.checkoutUrl,
+                        sessionId: checkout.sessionId,
+                        bookingId: booking.id,
+                        returnUrl: paymentReturnUrl(),
+                      }),
+                    )
+                    .then(() => load())
+                    .catch((caught) => setError(messageOf(caught)))
+                    .finally(() => setBusy(false));
+                }}
+              />
+            ) : null}
             <Button label="Location & arrival" variant="secondary" onPress={() => router.push("/arrival" as never)} />
             {pending ? (
               <>

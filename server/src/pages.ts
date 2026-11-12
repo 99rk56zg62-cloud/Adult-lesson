@@ -54,6 +54,7 @@ export function mockCheckoutPage(input: {
   location: string;
   priceLabel: string;
   alreadyPaid: boolean;
+  balanceNote?: string | null;
 }): string {
   const action = input.alreadyPaid
     ? `<button type="submit">Return to your lesson</button>`
@@ -72,6 +73,7 @@ export function mockCheckoutPage(input: {
        <input type="hidden" name="token" value="${esc(input.token)}" />
        ${action}
      </form>
+     ${input.balanceNote ? `<p class="note">${esc(input.balanceNote)}</p>` : ""}
      <p class="note muted">${esc(BOOKING_POLICY)}</p>
      <p class="note muted">No card is charged. Use Stripe test mode when you want a real Checkout payment.</p>`,
   );

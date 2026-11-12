@@ -156,6 +156,33 @@ export type Booking = {
   googleCalendarUrl: string | null;
   slot: Slot | null;
   course: CourseRun | null;
+  depositPence: number;
+  depositLabel: string;
+  balancePence: number;
+  balanceLabel: string;
+  balanceDueAt: string | null;
+  balanceDueLabel: string | null;
+  balanceStatus: string;
+  payTodayPence: number;
+  payTodayLabel: string;
+  courseGoal: string | null;
+  courseComments: string | null;
+};
+
+export type SwimmerProfile = {
+  fullName: string;
+  addressLine1: string;
+  addressLine2: string;
+  town: string;
+  postcode: string;
+  dateOfBirth: string;
+  phone: string;
+  emergencyName: string;
+  emergencyRelationship: string;
+  emergencyPhone: string;
+  medicalNone: boolean;
+  medicalNotes: string;
+  swimmingLevel: string;
 };
 
 export type CalendarStatus = {

@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { ZONE } from "./time.js";
 
 export const MAX_ADVANCE_WEEKS = 6;
+export const MAX_COURSE_ADVANCE_MONTHS = 6;
 export const RESCHEDULE_CUTOFF_MS = 24 * 60 * 60 * 1000;
 export const HOLD_MS = 45 * 60 * 1000;
 
@@ -10,6 +11,10 @@ export type BookingWindowResult = { ok: true } | RuleFailure;
 
 export function lastBookableDay(now: DateTime): DateTime {
   return now.setZone(ZONE).startOf("day").plus({ weeks: MAX_ADVANCE_WEEKS });
+}
+
+export function lastCourseBookableDay(now: DateTime): DateTime {
+  return now.setZone(ZONE).startOf("day").plus({ months: MAX_COURSE_ADVANCE_MONTHS });
 }
 
 export function getBookingBlock(startsAt: DateTime, now: DateTime): BookingWindowResult {
@@ -25,6 +30,24 @@ export function getBookingBlock(startsAt: DateTime, now: DateTime): BookingWindo
       ok: false,
       code: "TOO_FAR_AHEAD",
       message: "You can only book sessions up to 6 weeks ahead.",
+    };
+  }
+  return { ok: true };
+}
+
+export function getCourseBookingBlock(startsAt: DateTime, now: DateTime): BookingWindowResult {
+  if (!startsAt.isValid) {
+    return { ok: false, code: "VALIDATION", message: "This session has an invalid start time." };
+  }
+  if (startsAt.toMillis() <= now.toMillis()) {
+    return { ok: false, code: "SLOT_IN_PAST", message: "This session has already started." };
+  }
+  const startDay = startsAt.setZone(ZONE).startOf("day");
+  if (startDay > lastCourseBookableDay(now)) {
+    return {
+      ok: false,
+      code: "TOO_FAR_AHEAD",
+      message: "You can book a crash course up to 6 months ahead.",
     };
   }
   return { ok: true };

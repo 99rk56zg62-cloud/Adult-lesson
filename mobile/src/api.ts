@@ -77,6 +77,17 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request<{ token: string; user: User }>("/api/auth/login", { method: "POST", body, auth: false }),
   me: () => request<{ user: User }>("/api/me"),
+  profile: () =>
+    request<{
+      complete: boolean;
+      consentText: string;
+      swimmingLevels: { id: string; label: string }[];
+      profile: import("@/types").SwimmerProfile | null;
+    }>("/api/profile"),
+  saveProfile: (body: import("@/types").SwimmerProfile & { consent: boolean }) =>
+    request<{ complete: boolean; profile: import("@/types").SwimmerProfile }>("/api/profile", { method: "PUT", body }),
+  saveCourseNotes: (bookingId: string, body: { goal: string; comments?: string }) =>
+    request<{ booking: Booking }>(`/api/bookings/${bookingId}/course-notes`, { method: "POST", body }),
   locations: () => request<{ locations: Location[] }>("/api/locations"),
   slots: (filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string }) =>
     request<{
@@ -129,7 +140,22 @@ export const api = {
     request<{ items: Booking[]; totalPence: number; totalLabel: string }>(`/api/basket/${encodeURIComponent(slotId)}`, {
       method: "DELETE",
     }),
-  checkoutBasket: (returnUrl: string) => request<CheckoutResponse>("/api/basket/checkout", { method: "POST", body: { returnUrl } }),
+  checkoutBasket: (returnUrl: string, options?: { savedCardId?: string; saveCard?: boolean }) =>
+    request<CheckoutResponse & { paidImmediately?: boolean }>("/api/basket/checkout", { method: "POST", body: { returnUrl, ...options } }),
+  cards: () => request<{ cards: { id: string; brand: string; last4: string; expMonth: number; expYear: number; isDefault: boolean }[] }>("/api/cards"),
+  addCard: (body: { brand?: string; last4: string; expMonth: number; expYear: number }) =>
+    request<{ cards: { id: string; brand: string; last4: string; expMonth: number; expYear: number; isDefault: boolean }[] }>("/api/cards", {
+      method: "POST",
+      body,
+    }),
+  defaultCard: (id: string) =>
+    request<{ cards: { id: string; brand: string; last4: string; isDefault: boolean }[] }>(`/api/cards/${id}/default`, { method: "POST" }),
+  removeCard: (id: string) => request<{ cards: { id: string }[] }>(`/api/cards/${id}`, { method: "DELETE" }),
+  notificationSettings: () => request<{ pushOptOut: boolean; emailStaysOn: boolean }>("/api/notification-settings"),
+  saveNotificationSettings: (body: { pushOptOut?: boolean }) =>
+    request<{ pushOptOut: boolean; emailStaysOn: boolean }>("/api/notification-settings", { method: "PUT", body }),
+  balanceCheckout: (bookingId: string, returnUrl: string) =>
+    request<CheckoutResponse>(`/api/bookings/${bookingId}/balance-checkout`, { method: "POST", body: { returnUrl } }),
   refreshCheckout: (id: string, returnUrl: string) =>
     request<CheckoutResponse>(`/api/bookings/${id}/checkout`, { method: "POST", body: { returnUrl } }),
   confirm: (sessionId: string) =>

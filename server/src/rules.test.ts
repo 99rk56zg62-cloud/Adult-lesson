@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { DateTime } from "luxon";
-import { getBookingBlock, getRescheduleBlock, lastBookableDay, RESCHEDULE_CUTOFF_MS, spotsRemaining } from "./rules.js";
+import { getBookingBlock, getCourseBookingBlock, getRescheduleBlock, lastBookableDay, lastCourseBookableDay, RESCHEDULE_CUTOFF_MS, spotsRemaining } from "./rules.js";
 import { ZONE } from "./time.js";
 
 const now = DateTime.fromISO("2026-09-21T12:00:00.000Z");
@@ -21,6 +21,17 @@ describe("booking window", () => {
     const blocked = getBookingBlock(now.minus({ minutes: 1 }), now);
     assert.equal(blocked.ok, false);
     if (!blocked.ok) assert.equal(blocked.code, "SLOT_IN_PAST");
+  });
+});
+
+describe("crash course window", () => {
+  test("allows a day six months ahead and blocks the next day", () => {
+    const last = lastCourseBookableDay(now);
+    assert.equal(getCourseBookingBlock(last.set({ hour: 6, minute: 0 }), now).ok, true);
+    const blocked = getCourseBookingBlock(last.plus({ days: 1 }).set({ hour: 6, minute: 0 }), now);
+    assert.equal(blocked.ok, false);
+    if (!blocked.ok) assert.equal(blocked.code, "TOO_FAR_AHEAD");
+    assert.ok(last > lastBookableDay(now));
   });
 });
 

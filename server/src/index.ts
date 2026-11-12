@@ -43,6 +43,13 @@ const app = createApp({
   verifyWebhook: stripe?.verifyWebhook,
 });
 
+void app.runBalanceSweep().catch((error: unknown) => console.error("balance sweep failed", error));
+void app.runSessionReminders().catch((error: unknown) => console.error("session reminders failed", error));
+setInterval(() => {
+  void app.runBalanceSweep().catch((error: unknown) => console.error("balance sweep failed", error));
+  void app.runSessionReminders().catch((error: unknown) => console.error("session reminders failed", error));
+}, 15 * 60 * 1000);
+
 app.listen(config.port, () => {
   console.log(`${BUSINESS_NAME} API listening on port ${config.port}`);
   console.log(`Public URL ${config.apiPublicUrl}`);

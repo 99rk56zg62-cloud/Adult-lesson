@@ -34,6 +34,8 @@ import {
 import { hashPassword, readOAuthState, signAccessToken, signOAuthState, verifyPassword } from "./auth.js";
 import type { CalendarGateway } from "./calendar.js";
 import { assertCourseSessions, assertSessionOpen, listCourseDayOptions, suggestCrashCourses, type SessionChoice } from "./course-plans.js";
+import { BALANCE_REMINDER_DAYS, coursePaymentPlan } from "./deposits.js";
+import { assertProfileInput, type ProfileInput } from "./profile.js";
 import type { AppConfig } from "./config.js";
 import { getRow, getRows, isUniqueError, withTransaction } from "./db.js";
 import { AppError } from "./errors.js";
@@ -44,6 +46,7 @@ import {
   presentLocation,
   presentRule,
   presentSlot,
+  formatDeadline,
   formatGBP,
 } from "./format.js";
 import type { PaymentProvider } from "./payments.js";
@@ -83,6 +86,7 @@ export type CheckoutResult = {
   booking: BookingDto;
   checkoutUrl: string;
   sessionId: string;
+  paidImmediately?: boolean;
 };
 
 export type MutationResult = {
@@ -100,6 +104,36 @@ const SLOT_TAKEN_MESSAGE =
 const COURSE_TAKEN_MESSAGE =
   "Payment was received, but the course filled after the hold expired, so the booking was not confirmed. If you paid by card, refund the payment in the Stripe dashboard and book another course.";
 
+type CardRow = {
+  id: string;
+  user_id: string;
+  stripe_customer_id: string;
+  stripe_payment_method_id: string;
+  brand: string;
+  last4: string;
+  exp_month: number;
+  exp_year: number;
+  is_default: number;
+  created_at: string;
+};
+
+type ProfileRow = {
+  user_id: string;
+  full_name: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  town: string | null;
+  postcode: string | null;
+  date_of_birth: string | null;
+  phone: string | null;
+  emergency_name: string | null;
+  emergency_relationship: string | null;
+  emergency_phone: string | null;
+  medical_none: number | null;
+  medical_notes: string | null;
+  swimming_level: string | null;
+};
+
 export function createService(deps: ServiceDeps) {
   const { db, clock, config, payments, calendar } = deps;
 
@@ -112,6 +146,111 @@ export function createService(deps: ServiceDeps) {
       `UPDATE bookings SET status = 'expired'
        WHERE status = 'pending_payment' AND hold_expires_at IS NOT NULL AND hold_expires_at <= ?`,
     ).run(nowIso());
+  }
+
+  async function rememberCard(userId: string, customerId: string, paymentMethodId: string) {
+    const existing = getRow<{ id: string }>(
+      db,
+      `SELECT id FROM payment_cards WHERE user_id = ? AND stripe_payment_method_id = ?`,
+      userId,
+      paymentMethodId,
+    );
+    if (existing) return;
+    const details = await payments.describeCard(paymentMethodId);
+    if (!details || !/^\d{4}$/.test(details.last4)) return;
+    const count = getRow<{ n: number }>(db, `SELECT COUNT(*) AS n FROM payment_cards WHERE user_id = ?`, userId);
+    db.prepare(
+      `INSERT INTO payment_cards (
+        id, user_id, stripe_customer_id, stripe_payment_method_id, brand, last4, exp_month, exp_year, is_default, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      userId,
+      customerId,
+      paymentMethodId,
+      details.brand,
+      details.last4,
+      details.expMonth,
+      details.expYear,
+      (count?.n ?? 0) === 0 ? 1 : 0,
+      nowIso(),
+    );
+  }
+
+  function sendExpoPush(token: string, title: string, body: string) {
+    void fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ to: token, title, body, sound: "default" }),
+    }).catch((error: unknown) => {
+      console.error("expo push failed", error instanceof Error ? error.message : error);
+    });
+  }
+
+  function recordReminder(bookingId: string, sessionKey: string, channel: string, subject: string, body: string, userId: string): number {
+    const existing = getRow<{ id: string }>(
+      db,
+      `SELECT id FROM session_reminders WHERE booking_id = ? AND session_key = ? AND channel = ?`,
+      bookingId,
+      sessionKey,
+      channel,
+    );
+    if (existing) return 0;
+    const stamp = nowIso();
+    db.prepare(
+      `INSERT INTO session_reminders (id, booking_id, session_key, channel, subject, body, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(randomUUID(), bookingId, sessionKey, channel, subject, body, stamp);
+    if (channel === "email") {
+      db.prepare(`INSERT INTO email_outbox (id, user_id, booking_id, subject, body, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        randomUUID(),
+        userId,
+        bookingId,
+        subject,
+        body,
+        stamp,
+      );
+    }
+    if (channel === "push") {
+      db.prepare(`INSERT INTO notifications (id, user_id, booking_id, kind, message, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?)`).run(
+        randomUUID(),
+        userId,
+        bookingId,
+        `${subject}\n${body}`,
+        stamp,
+      );
+    }
+    return 1;
+  }
+
+  function setting(key: string, fallback: string): string {
+    return getRow<{ value: string }>(db, `SELECT value FROM app_settings WHERE key = ?`, key)?.value ?? fallback;
+  }
+
+  function assertProfileReady(userId: string) {
+    const row = getRow<{ user_id: string }>(db, `SELECT user_id FROM swimmer_profiles WHERE user_id = ?`, userId);
+    if (!row) {
+      throw new AppError(409, "PROFILE_REQUIRED", "Add your details before paying. We need them to keep you safe in the water.");
+    }
+  }
+
+  function notify(userId: string, bookingId: string, kind: string, subject: string, message: string) {
+    const stamp = nowIso();
+    db.prepare(`INSERT INTO notifications (id, user_id, booking_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+      randomUUID(),
+      userId,
+      bookingId,
+      kind,
+      message,
+      stamp,
+    );
+    db.prepare(`INSERT INTO email_outbox (id, user_id, booking_id, subject, body, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+      randomUUID(),
+      userId,
+      bookingId,
+      subject,
+      message,
+      stamp,
+    );
   }
 
   function requireUser(userId: string): UserRow {
@@ -349,7 +488,13 @@ export function createService(deps: ServiceDeps) {
     const booking = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, bookingId);
     if (!booking) throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
     const user = requireUser(booking.user_id);
+    assertProfileReady(user.id);
+    if (booking.kind === "course" && !(booking.course_goal ?? "").trim()) {
+      throw new AppError(400, "COURSE_GOAL_REQUIRED", "Tell us what you would like to achieve on the crash course.");
+    }
     const presented = toBookingDto(booking);
+    const amountPence = presented.payTodayPence > 0 ? presented.payTodayPence : booking.price_pence;
+    const saveCard = (booking.balance_pence ?? 0) > 0 && booking.balance_status === "scheduled";
     const title =
       booking.kind === "course"
         ? `Crash course — ${presented.course?.title ?? "course"}`
@@ -361,11 +506,13 @@ export function createService(deps: ServiceDeps) {
     try {
       const session = await payments.createCheckout({
         bookingId: booking.id,
-        amountPence: booking.price_pence,
-        title,
+        amountPence,
+        title: saveCard ? `${title} deposit` : title,
         description,
         customerEmail: user.email,
         reference: booking.reference,
+        saveCard,
+        purpose: "booking",
       });
       db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE id = ?`).run(session.id, booking.id);
       const fresh = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, booking.id)!;
@@ -710,6 +857,15 @@ export function createService(deps: ServiceDeps) {
       if (actorUserId && pre.user_id !== actorUserId) {
         throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
       }
+      if (verified.purpose === "balance") {
+        db.prepare(`UPDATE bookings SET balance_status = 'paid', balance_paid_at = ?, stripe_payment_intent = ? WHERE id = ?`).run(
+          nowIso(),
+          verified.paymentIntentId,
+          pre.id,
+        );
+        const settled = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, pre.id)!;
+        return { booking: toBookingDto(settled), calendarSyncError: null, returnUrl: settled.return_url };
+      }
 
       const confirmedIds = withTransaction(db, () => {
         expireStale();
@@ -747,10 +903,27 @@ export function createService(deps: ServiceDeps) {
              SET status = 'confirmed', confirmed_at = ?, stripe_session_id = ?, stripe_payment_intent = ?, payment_source = ?
              WHERE id = ?`,
           ).run(nowIso(), sessionId, verified.paymentIntentId, source, booking.id);
+          if (verified.customerId && verified.paymentMethodId) {
+            db.prepare(`UPDATE bookings SET stripe_customer_id = ?, stripe_payment_method_id = ? WHERE id = ?`).run(
+              verified.customerId,
+              verified.paymentMethodId,
+              booking.id,
+            );
+            db.prepare(`UPDATE users SET stripe_customer_id = ?, stripe_payment_method_id = ? WHERE id = ?`).run(
+              verified.customerId,
+              verified.paymentMethodId,
+              booking.user_id,
+            );
+          }
           ids.push(booking.id);
         }
         return ids;
       });
+
+      if (verified.customerId && verified.paymentMethodId && confirmedIds[0]) {
+        const owner = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, confirmedIds[0]);
+        if (owner) await rememberCard(owner.user_id, verified.customerId, verified.paymentMethodId);
+      }
 
       let calendarSyncError: string | null = null;
       for (const id of confirmedIds) {
@@ -1037,8 +1210,12 @@ export function createService(deps: ServiceDeps) {
           dayLabel: presented.course.dateSummary,
           timeLabel: `${presented.course.dailyTimeLabel} daily · ${presented.course.dailyMinutes} min`,
           location: presented.course.location,
-          priceLabel: presented.priceLabel,
-          alreadyPaid: peeked.paid || booking.status === "confirmed",
+          priceLabel: presented.payTodayPence > 0 ? presented.payTodayLabel : presented.priceLabel,
+          alreadyPaid: peeked.paid || (booking.status === "confirmed" && presented.balanceStatus !== "overdue"),
+          balanceNote:
+            presented.balancePence > 0
+              ? `Deposit today ${presented.depositLabel}. Balance ${presented.balanceLabel} is due ${presented.balanceDueLabel}. The deposit is non-refundable.`
+              : "The full course fee is due today because it starts within 4 weeks. This payment is non-refundable.",
         };
       }
       const slot = requireSlot(booking.slot_id!);
@@ -1054,6 +1231,384 @@ export function createService(deps: ServiceDeps) {
         priceLabel: presented.priceLabel,
         alreadyPaid: peeked.paid || booking.status === "confirmed",
       };
+    },
+
+    profile(userId: string) {
+      requireUser(userId);
+      const row = getRow<ProfileRow>(db, `SELECT * FROM swimmer_profiles WHERE user_id = ?`, userId);
+      return {
+        complete: Boolean(row),
+        consentText: "I confirm these details are accurate and consent to Swim School Academy storing them to keep me safe in lessons",
+        swimmingLevels: [
+          { id: "scared", label: "Scared non-swimmer" },
+          { id: "basic", label: "Basic swim skills" },
+          { id: "improver", label: "Improver" },
+          { id: "advanced", label: "Advanced swimmer" },
+        ],
+        profile: row
+          ? {
+              fullName: row.full_name,
+              addressLine1: row.address_line1,
+              addressLine2: row.address_line2,
+              town: row.town,
+              postcode: row.postcode,
+              dateOfBirth: row.date_of_birth,
+              phone: row.phone,
+              emergencyName: row.emergency_name,
+              emergencyRelationship: row.emergency_relationship,
+              emergencyPhone: row.emergency_phone,
+              medicalNone: row.medical_none === 1,
+              medicalNotes: row.medical_notes,
+              swimmingLevel: row.swimming_level,
+            }
+          : null,
+      };
+    },
+
+    saveProfile(userId: string, input: ProfileInput) {
+      requireUser(userId);
+      const clean = assertProfileInput(input, clock());
+      const stamp = nowIso();
+      db.prepare(
+        `INSERT INTO swimmer_profiles (
+          user_id, full_name, address_line1, address_line2, town, postcode, date_of_birth, phone,
+          emergency_name, emergency_relationship, emergency_phone, medical_none, medical_notes,
+          swimming_level, consent_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          full_name = excluded.full_name,
+          address_line1 = excluded.address_line1,
+          address_line2 = excluded.address_line2,
+          town = excluded.town,
+          postcode = excluded.postcode,
+          date_of_birth = excluded.date_of_birth,
+          phone = excluded.phone,
+          emergency_name = excluded.emergency_name,
+          emergency_relationship = excluded.emergency_relationship,
+          emergency_phone = excluded.emergency_phone,
+          medical_none = excluded.medical_none,
+          medical_notes = excluded.medical_notes,
+          swimming_level = excluded.swimming_level,
+          consent_at = excluded.consent_at,
+          updated_at = excluded.updated_at`,
+      ).run(
+        userId,
+        clean.fullName,
+        clean.addressLine1,
+        clean.addressLine2,
+        clean.town,
+        clean.postcode,
+        clean.dateOfBirth,
+        clean.phone,
+        clean.emergencyName,
+        clean.emergencyRelationship,
+        clean.emergencyPhone,
+        clean.medicalNone ? 1 : 0,
+        clean.medicalNotes,
+        clean.swimmingLevel,
+        stamp,
+        stamp,
+      );
+      return this.profile(userId);
+    },
+
+    saveCourseNotes(userId: string, bookingId: string, input: { goal: string; comments?: string }) {
+      const booking = requireOwned(userId, bookingId);
+      if (booking.kind !== "course") throw new AppError(400, "VALIDATION", "That booking isn't a crash course.");
+      const goal = input.goal.trim();
+      if (goal.length < 2) throw new AppError(400, "VALIDATION", "Tell us what you would like to achieve on the crash course.");
+      db.prepare(`UPDATE bookings SET course_goal = ?, course_comments = ? WHERE id = ?`).run(goal, (input.comments ?? "").trim(), booking.id);
+      return toBookingDto(requireOwned(userId, bookingId));
+    },
+
+    notifications(userId: string) {
+      requireUser(userId);
+      return getRows<{ id: string; kind: string; message: string; created_at: string }>(
+        db,
+        `SELECT id, kind, message, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
+        userId,
+      );
+    },
+
+    async runBalanceSweep(asOf?: DateTime) {
+      const now = asOf ?? clock();
+      const rows = getRows<BookingRow>(
+        db,
+        `SELECT * FROM bookings
+         WHERE kind = 'course' AND status = 'confirmed' AND balance_status = 'scheduled' AND balance_pence > 0`,
+      );
+      let reminded = 0;
+      let charged = 0;
+      let overdue = 0;
+      for (const row of rows) {
+        if (!row.balance_due_at || !row.balance_pence) continue;
+        const due = fromIso(row.balance_due_at);
+        const remindAt = due.minus({ days: BALANCE_REMINDER_DAYS });
+        if (!row.balance_reminder_sent_at && now.toMillis() >= remindAt.toMillis() && now.toMillis() < due.toMillis()) {
+          const message = `Your crash course balance of ${formatGBP(row.balance_pence)} will be taken on ${formatDeadline(due)}.`;
+          notify(row.user_id, row.id, "balance_reminder", "Crash course balance reminder", message);
+          db.prepare(`UPDATE bookings SET balance_reminder_sent_at = ? WHERE id = ?`).run(toUtcIso(now), row.id);
+          reminded += 1;
+        }
+        if (now.toMillis() >= due.toMillis()) {
+          const saved = getRow<CardRow>(
+            db,
+            `SELECT * FROM payment_cards WHERE user_id = ? ORDER BY is_default DESC, created_at LIMIT 1`,
+            row.user_id,
+          );
+          const result = await payments.chargeOffSession({
+            customerId: saved?.stripe_customer_id ?? row.stripe_customer_id ?? "",
+            paymentMethodId: saved?.stripe_payment_method_id ?? row.stripe_payment_method_id ?? "",
+            amountPence: row.balance_pence,
+            bookingId: row.id,
+            description: `Crash course balance ${row.reference}`,
+          });
+          if (result.ok) {
+            db.prepare(`UPDATE bookings SET balance_status = 'paid', balance_paid_at = ?, stripe_payment_intent = ? WHERE id = ?`).run(
+              toUtcIso(now),
+              result.paymentIntentId,
+              row.id,
+            );
+            notify(row.user_id, row.id, "balance_paid", "Crash course balance paid", `We've taken the remaining ${formatGBP(row.balance_pence)}.`);
+            charged += 1;
+          } else {
+            db.prepare(`UPDATE bookings SET balance_status = 'overdue' WHERE id = ?`).run(row.id);
+            notify(
+              row.user_id,
+              row.id,
+              "balance_overdue",
+              "Crash course balance overdue",
+              `We couldn't take the remaining ${formatGBP(row.balance_pence)}. Pay now from My lessons. ${config.appWebUrl}/booking/${row.id}`,
+            );
+            overdue += 1;
+          }
+        }
+      }
+      return { reminded, charged, overdue };
+    },
+
+    async startBalanceCheckout(userId: string, bookingId: string, returnUrl: string): Promise<CheckoutResult> {
+      assertReturnUrl(returnUrl);
+      const booking = requireOwned(userId, bookingId);
+      if (booking.balance_status !== "overdue" || !booking.balance_pence) {
+        throw new AppError(409, "VALIDATION", "This booking doesn't have a balance to pay.");
+      }
+      const user = requireUser(userId);
+      const session = await payments.createCheckout({
+        bookingId: booking.id,
+        amountPence: booking.balance_pence,
+        title: "Crash course balance",
+        description: `Remaining balance for ${booking.reference}`,
+        customerEmail: user.email,
+        reference: booking.reference,
+        purpose: "balance",
+      });
+      return { booking: toBookingDto(booking), checkoutUrl: session.url, sessionId: session.id };
+    },
+
+    listAdminCourseBookings() {
+      return getRows<BookingRow & ProfileRow>(
+        db,
+        `SELECT b.*, p.full_name, p.address_line1, p.address_line2, p.town, p.postcode, p.date_of_birth, p.phone,
+                p.emergency_name, p.emergency_relationship, p.emergency_phone, p.medical_none, p.medical_notes, p.swimming_level
+         FROM bookings b
+         LEFT JOIN swimmer_profiles p ON p.user_id = b.user_id
+         WHERE b.kind = 'course' AND b.status IN ('pending_payment', 'confirmed')
+         ORDER BY b.created_at DESC
+         LIMIT 40`,
+      ).map((row) => ({
+        id: row.id,
+        reference: row.reference,
+        status: row.status,
+        priceLabel: formatGBP(row.price_pence),
+        depositLabel: formatGBP(row.deposit_pence ?? row.price_pence),
+        balanceLabel: formatGBP(row.balance_pence ?? 0),
+        balanceStatus: row.balance_status ?? "not_required",
+        balanceDueLabel: row.balance_due_at ? formatDeadline(fromIso(row.balance_due_at)) : null,
+        goal: row.course_goal,
+        comments: row.course_comments,
+        swimmer: row.full_name
+          ? {
+              fullName: row.full_name,
+              address: [row.address_line1, row.address_line2, row.town, row.postcode].filter(Boolean).join(", "),
+              dateOfBirth: row.date_of_birth,
+              phone: row.phone,
+              emergency: `${row.emergency_name} (${row.emergency_relationship}) ${row.emergency_phone}`,
+              swimmingLevel: row.swimming_level,
+              medical: row.medical_none === 1 ? "None" : row.medical_notes,
+            }
+          : null,
+      }));
+    },
+
+    listCards(userId: string) {
+      requireUser(userId);
+      return getRows<CardRow>(db, `SELECT * FROM payment_cards WHERE user_id = ? ORDER BY is_default DESC, created_at`, userId).map(
+        (card) => ({
+          id: card.id,
+          brand: card.brand,
+          last4: card.last4,
+          expMonth: card.exp_month,
+          expYear: card.exp_year,
+          isDefault: card.is_default === 1,
+        }),
+      );
+    },
+
+    async addMockCard(userId: string, input: { brand?: string; last4: string; expMonth: number; expYear: number }) {
+      requireUser(userId);
+      if (!/^\d{4}$/.test(input.last4)) {
+        throw new AppError(400, "VALIDATION", "Save only the last four digits. The full card number stays with Stripe.");
+      }
+      const id = randomUUID();
+      const count = getRow<{ n: number }>(db, `SELECT COUNT(*) AS n FROM payment_cards WHERE user_id = ?`, userId);
+      db.prepare(
+        `INSERT INTO payment_cards (
+          id, user_id, stripe_customer_id, stripe_payment_method_id, brand, last4, exp_month, exp_year, is_default, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        userId,
+        `mock_cus_${userId}`,
+        `mock_pm_${id}`,
+        (input.brand ?? "visa").slice(0, 20),
+        input.last4,
+        input.expMonth,
+        input.expYear,
+        (count?.n ?? 0) === 0 ? 1 : 0,
+        nowIso(),
+      );
+      return this.listCards(userId);
+    },
+
+    setDefaultCard(userId: string, cardId: string) {
+      requireUser(userId);
+      const card = getRow<CardRow>(db, `SELECT * FROM payment_cards WHERE id = ? AND user_id = ?`, cardId, userId);
+      if (!card) throw new AppError(404, "NOT_FOUND", "That card doesn't exist.");
+      db.prepare(`UPDATE payment_cards SET is_default = 0 WHERE user_id = ?`).run(userId);
+      db.prepare(`UPDATE payment_cards SET is_default = 1 WHERE id = ?`).run(cardId);
+      return this.listCards(userId);
+    },
+
+    removeCard(userId: string, cardId: string) {
+      requireUser(userId);
+      const card = getRow<CardRow>(db, `SELECT * FROM payment_cards WHERE id = ? AND user_id = ?`, cardId, userId);
+      if (!card) throw new AppError(404, "NOT_FOUND", "That card doesn't exist.");
+      db.prepare(`DELETE FROM payment_cards WHERE id = ?`).run(cardId);
+      if (card.is_default === 1) {
+        const next = getRow<{ id: string }>(db, `SELECT id FROM payment_cards WHERE user_id = ? ORDER BY created_at LIMIT 1`, userId);
+        if (next) db.prepare(`UPDATE payment_cards SET is_default = 1 WHERE id = ?`).run(next.id);
+      }
+      return this.listCards(userId);
+    },
+
+    notificationSettings(userId: string) {
+      const user = requireUser(userId);
+      return {
+        pushOptOut: user.push_opt_out === 1,
+        emailStaysOn: true,
+      };
+    },
+
+    saveNotificationSettings(userId: string, input: { pushOptOut?: boolean; expoPushToken?: string | null }) {
+      requireUser(userId);
+      const current = requireUser(userId);
+      db.prepare(`UPDATE users SET push_opt_out = ?, expo_push_token = ? WHERE id = ?`).run(
+        input.pushOptOut === undefined ? current.push_opt_out : input.pushOptOut ? 1 : 0,
+        input.expoPushToken === undefined ? current.expo_push_token : input.expoPushToken,
+        userId,
+      );
+      return this.notificationSettings(userId);
+    },
+
+    async runSessionReminders(asOf?: DateTime) {
+      if (setting("reminders_enabled", "1") !== "1") return { sent: 0, skipped: true };
+      const now = asOf ?? clock();
+      const horizon = now.plus({ hours: 24 });
+      const due = (startsAt: string) => {
+        const start = fromIso(startsAt);
+        return start.toMillis() > now.toMillis() && start.toMillis() <= horizon.toMillis();
+      };
+      const lessons = getRows<{ booking_id: string; user_id: string; starts_at: string; ends_at: string; address: string; reference: string }>(
+        db,
+        `SELECT b.id AS booking_id, b.user_id, b.reference, s.starts_at, s.ends_at, s.address
+         FROM bookings b JOIN slots s ON s.id = b.slot_id
+         WHERE b.kind = 'lesson' AND b.status = 'confirmed'`,
+      ).filter((row) => due(row.starts_at));
+      const courseDays = getRows<{ booking_id: string; user_id: string; starts_at: string; ends_at: string; address: string; reference: string; session_id: string }>(
+        db,
+        `SELECT b.id AS booking_id, b.user_id, b.reference, cs.id AS session_id, cs.starts_at, cs.ends_at, r.address
+         FROM bookings b
+         JOIN course_runs r ON r.id = b.course_run_id
+         JOIN course_sessions cs ON cs.run_id = r.id
+         WHERE b.kind = 'course' AND b.status = 'confirmed'`,
+      ).filter((row) => due(row.starts_at));
+      let sent = 0;
+      const queue = [
+        ...lessons.map((row) => ({ ...row, sessionKey: `lesson:${row.starts_at}`, length: "single lesson" })),
+        ...courseDays.map((row) => ({ ...row, sessionKey: `course:${row.session_id}:${row.starts_at}`, length: "90 minute course day" })),
+      ];
+      for (const item of queue) {
+        const user = requireUser(item.user_id);
+        const when = fromIso(item.starts_at).setZone(ZONE);
+        const body = [
+          `Your session is ${when.toFormat("cccc d LLLL")} at ${when.toFormat("h:mma").toLowerCase()}.`,
+          `Length: ${item.length}.`,
+          `Where: ${item.address}.`,
+          `How to arrive: ${config.appWebUrl}/arrival`,
+          "You can no longer rearrange this session. Changes close 24 hours before the start.",
+        ].join("\n");
+        const subject = `Tomorrow's swim — ${item.reference}`;
+        sent += recordReminder(item.booking_id, item.sessionKey, "email", subject, body, item.user_id);
+        if (user.push_opt_out !== 1) {
+          const pushed = recordReminder(item.booking_id, item.sessionKey, "push", subject, body, item.user_id);
+          sent += pushed;
+          if (pushed && user.expo_push_token) void sendExpoPush(user.expo_push_token, subject, body);
+        }
+      }
+      return { sent, skipped: false };
+    },
+
+    reminderAdmin() {
+      return {
+        enabled: setting("reminders_enabled", "1") === "1",
+        log: getRows<{ booking_id: string; channel: string; subject: string; body: string; sent_at: string }>(
+          db,
+          `SELECT booking_id, channel, subject, body, sent_at FROM session_reminders ORDER BY sent_at DESC LIMIT 40`,
+        ),
+      };
+    },
+
+    setReminderSettings(input: { enabled?: boolean }) {
+      const stamp = nowIso();
+      if (input.enabled !== undefined) {
+        db.prepare(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ('reminders_enabled', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        ).run(input.enabled ? "1" : "0", stamp);
+      }
+      return this.reminderAdmin();
+    },
+
+    listAdminCustomers() {
+      return getRows<{ id: string; name: string; email: string; brand: string | null; last4: string | null }>(
+        db,
+        `SELECT u.id, u.name, u.email, c.brand, c.last4
+         FROM users u
+         LEFT JOIN payment_cards c ON c.user_id = u.id AND c.is_default = 1
+         ORDER BY u.created_at DESC
+         LIMIT 40`,
+      ).map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        card: user.last4 ? `${user.brand ?? "card"} •••• ${user.last4}` : "No card saved",
+        bookings: getRows<{ reference: string; status: string; kind: string }>(
+          db,
+          `SELECT reference, status, kind FROM bookings WHERE user_id = ? AND status IN ('confirmed', 'pending_payment') ORDER BY created_at DESC LIMIT 8`,
+          user.id,
+        ),
+      }));
     },
 
     listAdminLocations(): LocationDto[] {
@@ -1424,7 +1979,7 @@ export function createService(deps: ServiceDeps) {
 
     addCourseToBasket(
       userId: string,
-      input: { days: number; locationId?: string; partySize?: number; sessions: SessionChoice[] },
+      input: { days: number; locationId?: string; partySize?: number; sessions: SessionChoice[]; goal?: string; comments?: string },
     ) {
       const user = requireUser(userId);
       expireStale();
@@ -1440,6 +1995,8 @@ export function createService(deps: ServiceDeps) {
       );
       if (!product) throw new AppError(409, "COURSE_UNAVAILABLE", "Crash courses aren't set up yet.");
       const price = COURSE_PACKAGE_PRICES[input.days as 3 | 4 | 5];
+      const goal = input.goal?.trim() ?? "";
+      const comments = input.comments?.trim() ?? "";
       const resolved = assertCourseSessions(db, clock(), {
         locationId: location.id,
         days: input.days,
@@ -1483,13 +2040,29 @@ export function createService(deps: ServiceDeps) {
         again.forEach((session, index) => {
           insertSession.run(randomUUID(), runId, index + 1, session.startsAt, session.endsAt);
         });
+        const plan = coursePaymentPlan(price, fromIso(again[0]!.startsAt), clock());
         db.prepare(
           `INSERT INTO bookings (
             id, reference, user_id, kind, slot_id, course_run_id, status, hold_expires_at, price_pence,
             stripe_session_id, stripe_payment_intent, payment_source, return_url,
-            calendar_event_id, created_at, confirmed_at, rescheduled_at
-          ) VALUES (?, ?, ?, 'course', NULL, ?, 'pending_payment', ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL)`,
-        ).run(randomUUID(), makeReference(db), user.id, runId, toUtcIso(clock().plus({ milliseconds: HOLD_MS })), price, stamp);
+            calendar_event_id, created_at, confirmed_at, rescheduled_at,
+            deposit_pence, balance_pence, balance_due_at, balance_status, course_goal, course_comments
+          ) VALUES (?, ?, ?, 'course', NULL, ?, 'pending_payment', ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          randomUUID(),
+          makeReference(db),
+          user.id,
+          runId,
+          toUtcIso(clock().plus({ milliseconds: HOLD_MS })),
+          price,
+          stamp,
+          plan.depositPence,
+          plan.balancePence,
+          plan.dueAt ? toUtcIso(plan.dueAt) : null,
+          plan.fullUpfront ? "not_required" : "scheduled",
+          goal,
+          comments,
+        );
       });
       return this.basket(userId);
     },
@@ -1568,7 +2141,7 @@ export function createService(deps: ServiceDeps) {
         nowIso(),
       );
       const items = rows.map((row) => toBookingDto(row));
-      const totalPence = items.reduce((sum, item) => sum + item.pricePence, 0);
+      const totalPence = items.reduce((sum, item) => sum + item.payTodayPence, 0);
       return { items, totalPence, totalLabel: formatGBP(totalPence) };
     },
 
@@ -1624,7 +2197,11 @@ export function createService(deps: ServiceDeps) {
       return this.basket(userId);
     },
 
-    async checkoutBasket(userId: string, returnUrl: string): Promise<CheckoutResult> {
+    async checkoutBasket(
+      userId: string,
+      returnUrl: string,
+      options?: { savedCardId?: string; saveCard?: boolean },
+    ): Promise<CheckoutResult> {
       const user = requireUser(userId);
       assertReturnUrl(returnUrl);
       expireStale();
@@ -1638,6 +2215,12 @@ export function createService(deps: ServiceDeps) {
         nowIso(),
       );
       if (rows.length === 0) throw new AppError(400, "VALIDATION", "Your basket is empty.");
+      assertProfileReady(userId);
+      for (const row of rows) {
+        if (row.kind === "course" && !(row.course_goal ?? "").trim()) {
+          throw new AppError(400, "COURSE_GOAL_REQUIRED", "Tell us what you would like to achieve on the crash course.");
+        }
+      }
       const holdUntil = toUtcIso(clock().plus({ milliseconds: HOLD_MS }));
       for (const row of rows) {
         if (row.kind === "course" && row.course_run_id) {
@@ -1672,10 +2255,11 @@ export function createService(deps: ServiceDeps) {
       const lines = fresh.map((row) => {
         const presented = toBookingDto(row);
         if (row.kind === "course" && presented.course) {
+          const dueNow = presented.payTodayPence || row.price_pence;
           return {
-            title: presented.course.title,
+            title: presented.balancePence > 0 ? `${presented.course.title} deposit` : presented.course.title,
             description: presented.course.sessions.map((session) => `${session.dayLabel} ${session.timeLabel}`).join("; "),
-            amountPence: row.price_pence,
+            amountPence: dueNow,
           };
         }
         return {
@@ -1685,6 +2269,35 @@ export function createService(deps: ServiceDeps) {
         };
       });
       const total = lines.reduce((sum, line) => sum + line.amountPence, 0);
+      if (options?.savedCardId) {
+        const card = getRow<CardRow>(
+          db,
+          `SELECT * FROM payment_cards WHERE id = ? AND user_id = ?`,
+          options.savedCardId,
+          userId,
+        );
+        if (!card) throw new AppError(404, "NOT_FOUND", "That saved card doesn't exist.");
+        const charged = await payments.chargeOffSession({
+          customerId: card.stripe_customer_id,
+          paymentMethodId: card.stripe_payment_method_id,
+          amountPence: total,
+          bookingId: fresh[0]!.id,
+          description: lines.map((line) => line.title).join(", "),
+        });
+        if (!charged.ok) throw new AppError(402, "CARD_DECLINED", charged.message);
+        const stamp = nowIso();
+        for (const row of fresh) {
+          db.prepare(
+            `UPDATE bookings
+             SET status = 'confirmed', confirmed_at = ?, payment_source = ?, stripe_payment_intent = ?,
+                 stripe_customer_id = ?, stripe_payment_method_id = ?
+             WHERE id = ? AND status != 'confirmed'`,
+          ).run(stamp, payments.mode, charged.paymentIntentId, card.stripe_customer_id, card.stripe_payment_method_id, row.id);
+        }
+        const booking = toBookingDto(getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, fresh[0]!.id)!);
+        return { booking, checkoutUrl: returnUrl, sessionId: charged.paymentIntentId, paidImmediately: true };
+      }
+      const saveCard = Boolean(options?.saveCard) || fresh.some((row) => (row.balance_pence ?? 0) > 0 && row.balance_status === "scheduled");
       const session = await payments.createCheckout({
         bookingId: fresh[0]!.id,
         amountPence: total,
@@ -1693,6 +2306,8 @@ export function createService(deps: ServiceDeps) {
         customerEmail: user.email,
         reference: fresh.map((row) => row.reference).join(", "),
         lines,
+        saveCard,
+        purpose: "booking",
       });
       for (const row of fresh) {
         db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE id = ?`).run(session.id, row.id);

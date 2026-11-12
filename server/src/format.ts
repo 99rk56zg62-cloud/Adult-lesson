@@ -268,6 +268,41 @@ export function presentCourseRun(
   };
 }
 
+export function paymentFields(booking: BookingRow): Pick<
+  BookingDto,
+  | "depositPence"
+  | "depositLabel"
+  | "balancePence"
+  | "balanceLabel"
+  | "balanceDueAt"
+  | "balanceDueLabel"
+  | "balanceStatus"
+  | "payTodayPence"
+  | "payTodayLabel"
+  | "courseGoal"
+  | "courseComments"
+> {
+  const depositPence = booking.deposit_pence ?? booking.price_pence;
+  const balancePence = booking.balance_pence ?? 0;
+  const balanceStatus = booking.balance_status ?? "not_required";
+  const payTodayPence =
+    booking.status === "pending_payment" ? depositPence : balanceStatus === "overdue" ? balancePence : 0;
+  const due = booking.balance_due_at ? fromIso(booking.balance_due_at) : null;
+  return {
+    depositPence,
+    depositLabel: formatGBP(depositPence),
+    balancePence,
+    balanceLabel: formatGBP(balancePence),
+    balanceDueAt: booking.balance_due_at,
+    balanceDueLabel: due ? due.setZone(ZONE).toFormat("d LLLL yyyy") : null,
+    balanceStatus,
+    payTodayPence,
+    payTodayLabel: formatGBP(payTodayPence),
+    courseGoal: booking.course_goal,
+    courseComments: booking.course_comments,
+  };
+}
+
 function toUtcIsoFallback(value: DateTime): string {
   return value.toUTC().toISO() ?? value.toISO() ?? "";
 }
@@ -329,6 +364,7 @@ export function presentBooking(
           : null,
       slot: null,
       course,
+      ...paymentFields(booking),
     };
   }
 
@@ -378,10 +414,11 @@ export function presentBooking(
             kind: "lesson",
           })
         : null,
-    slot: presentedSlot,
-    course: null,
-  };
-}
+      slot: presentedSlot,
+      course: null,
+      ...paymentFields(booking),
+    };
+  }
 
 export function courseDailyMinutesLabel(): number {
   return COURSE_DAILY_MINUTES;

@@ -2,10 +2,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
+import { useAuth } from "@/auth";
 import { BOOKING_POLICY } from "@/brand";
+import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { colors, heading } from "@/theme";
-import type { CourseSuggestion, PlannedSession } from "@/types";
+import type { CourseSuggestion, DayAvailability, PlannedSession } from "@/types";
 
 function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
@@ -13,6 +15,7 @@ function one(value: string | string[] | undefined): string {
 
 export default function CoursePlanScreen() {
   const params = useLocalSearchParams<{ days?: string; locationId?: string }>();
+  const { ready, user } = useAuth();
   const days = Number(one(params.days)) || 3;
   const locationId = one(params.locationId) || undefined;
   const [suggestions, setSuggestions] = useState<CourseSuggestion[]>([]);
@@ -20,11 +23,14 @@ export default function CoursePlanScreen() {
   const [sessions, setSessions] = useState<PlannedSession[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [options, setOptions] = useState<PlannedSession[]>([]);
+  const [optionDay, setOptionDay] = useState<string | null>(null);
+  const [monthKey, setMonthKey] = useState(() => new Date().toISOString().slice(0, 7));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!ready || !user) return;
     let cancelled = false;
     (async () => {
       try {
@@ -43,7 +49,7 @@ export default function CoursePlanScreen() {
     return () => {
       cancelled = true;
     };
-  }, [days, locationId]);
+  }, [days, locationId, ready, user]);
 
   async function openChoices(index: number) {
     setEditing(index);
@@ -53,6 +59,9 @@ export default function CoursePlanScreen() {
       const exclude = sessions.filter((_, item) => item !== index).map((session) => session.dateKey);
       const result = await api.courseDayOptions(locationId, exclude);
       setOptions(result.sessions);
+      const first = result.sessions[0]?.dateKey;
+      if (first) setMonthKey(first.slice(0, 7));
+      setOptionDay(null);
     } catch (caught) {
       setError(messageOf(caught));
     }
@@ -82,7 +91,7 @@ export default function CoursePlanScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
         {!loading && suggestions.length === 0 ? (
-          <Text style={styles.note}>No {days}-day run fits in the next 6 weeks. Try fewer days, or ask the pool to open more mornings.</Text>
+          <Text style={styles.note}>No {days}-day run fits in the next 6 months. Try fewer days, or ask the pool to open more mornings.</Text>
         ) : null}
         {suggestions.length > 1 ? (
           <View style={styles.block}>
@@ -120,22 +129,34 @@ export default function CoursePlanScreen() {
         {editing !== null ? (
           <View style={styles.block}>
             <Text style={styles.label}>Choose another day</Text>
+            <Text style={styles.note}>Open days run up to 6 months ahead. Grey dates have no 90 minute start.</Text>
             {options.length === 0 ? <Text style={styles.note}>Looking for free days…</Text> : null}
-            {options.map((option) => (
-              <Pressable
-                key={`${option.dateKey}-${option.hour}-${option.minute}`}
-                accessibilityRole="button"
-                onPress={() => {
-                  setSessions((current) => current.map((session, index) => (index === editing ? option : session)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)));
-                  setEditing(null);
-                }}
-                style={styles.alt}
-              >
-                <Text style={styles.altText}>
-                  {option.dayLabel} · {option.timeLabel}
-                </Text>
-              </Pressable>
-            ))}
+            <BookingCalendar
+              monthKey={monthKey}
+              days={courseDays(options)}
+              selected={optionDay}
+              onSelect={setOptionDay}
+              onMonthChange={setMonthKey}
+            />
+            {options
+              .filter((option) => option.dateKey === optionDay)
+              .map((option) => (
+                <Pressable
+                  key={`${option.dateKey}-${option.hour}-${option.minute}`}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSessions((current) =>
+                      current.map((session, index) => (index === editing ? option : session)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+                    );
+                    setEditing(null);
+                  }}
+                  style={styles.alt}
+                >
+                  <Text style={styles.altText}>
+                    {option.dayLabel} · {option.timeLabel}
+                  </Text>
+                </Pressable>
+              ))}
           </View>
         ) : null}
         <Text style={styles.note}>{BOOKING_POLICY}</Text>
@@ -145,6 +166,27 @@ export default function CoursePlanScreen() {
       </ScrollView>
     </Phone>
   );
+}
+
+function courseDays(options: PlannedSession[]): DayAvailability[] {
+  const byDate = new Map<string, PlannedSession[]>();
+  for (const option of options) {
+    const list = byDate.get(option.dateKey) ?? [];
+    list.push(option);
+    byDate.set(option.dateKey, list);
+  }
+  return [...byDate.entries()].map(([dateKey, sessions]) => {
+    const date = new Date(`${dateKey}T12:00:00Z`);
+    return {
+      dateKey,
+      dayLabel: sessions[0]?.dayLabel ?? dateKey,
+      weekdayShort: date.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }),
+      dayOfMonth: Number(dateKey.slice(8)),
+      openCount: sessions.length,
+      totalCount: sessions.length,
+      selectable: true,
+    };
+  });
 }
 
 const styles = StyleSheet.create({

@@ -20,11 +20,16 @@ export default function AccountScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [cards, setCards] = useState<{ id: string; brand: string; last4: string; expMonth: number; expYear: number; isDefault: boolean }[]>([]);
+  const [pushOptOut, setPushOptOut] = useState(false);
   const notice = one(params.message);
 
   const load = useCallback(async () => {
     try {
-      setStatus(await api.calendarStatus());
+      const [calendar, cardList, settings] = await Promise.all([api.calendarStatus(), api.cards(), api.notificationSettings()]);
+      setStatus(calendar);
+      setCards(cardList.cards);
+      setPushOptOut(settings.pushOptOut);
       setError(null);
     } catch (caught) {
       setError(messageOf(caught));
@@ -79,6 +84,36 @@ export default function AccountScreen() {
           <Text style={styles.kicker}>Signed in</Text>
           <Text style={styles.name}>{user?.name}</Text>
           <Text style={styles.meta}>{user?.email}</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.kicker}>Payment cards</Text>
+          <Text style={styles.body}>Cards are stored by Stripe. We only keep the brand, last four digits, and expiry.</Text>
+          {cards.map((card) => (
+            <View key={card.id} style={{ gap: 6 }}>
+              <Text style={styles.name}>
+                {card.brand} •••• {card.last4} · {String(card.expMonth).padStart(2, "0")}/{card.expYear}
+                {card.isDefault ? " · default" : ""}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {card.isDefault ? null : <Button label="Make default" variant="secondary" onPress={() => void api.defaultCard(card.id).then((result) => setCards(result.cards as typeof cards))} />}
+                <Button label="Remove" variant="secondary" onPress={() => void api.removeCard(card.id).then(() => load())} />
+              </View>
+            </View>
+          ))}
+          <Button
+            label="Add a test card"
+            variant="secondary"
+            onPress={() => void api.addCard({ brand: "visa", last4: "4242", expMonth: 12, expYear: 2028 }).then((result) => setCards(result.cards))}
+          />
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.kicker}>Reminders</Text>
+          <Text style={styles.body}>Email stays on so you still get booking information. You can turn off the app notification.</Text>
+          <Button
+            label={pushOptOut ? "App reminders are off" : "Turn off app reminders"}
+            variant="secondary"
+            onPress={() => void api.saveNotificationSettings({ pushOptOut: !pushOptOut }).then((result) => setPushOptOut(result.pushOptOut))}
+          />
         </View>
         <View style={styles.card}>
           <Text style={styles.kicker}>Payment</Text>

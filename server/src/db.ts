@@ -216,6 +216,85 @@ function migrate(db: DatabaseSync) {
   ensureColumn(db, "locations", "arrival_instructions", "TEXT");
   ensureColumn(db, "locations", "latitude", "REAL");
   ensureColumn(db, "locations", "longitude", "REAL");
+  ensureColumn(db, "bookings", "deposit_pence", "INTEGER");
+  ensureColumn(db, "bookings", "balance_pence", "INTEGER");
+  ensureColumn(db, "bookings", "balance_due_at", "TEXT");
+  ensureColumn(db, "bookings", "balance_status", "TEXT");
+  ensureColumn(db, "bookings", "balance_paid_at", "TEXT");
+  ensureColumn(db, "bookings", "balance_reminder_sent_at", "TEXT");
+  ensureColumn(db, "bookings", "stripe_customer_id", "TEXT");
+  ensureColumn(db, "bookings", "stripe_payment_method_id", "TEXT");
+  ensureColumn(db, "bookings", "course_goal", "TEXT");
+  ensureColumn(db, "bookings", "course_comments", "TEXT");
+  ensureColumn(db, "users", "stripe_customer_id", "TEXT");
+  ensureColumn(db, "users", "stripe_payment_method_id", "TEXT");
+  ensureColumn(db, "users", "push_opt_out", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "users", "expo_push_token", "TEXT");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_cards (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      stripe_customer_id TEXT NOT NULL,
+      stripe_payment_method_id TEXT NOT NULL,
+      brand TEXT NOT NULL,
+      last4 TEXT NOT NULL,
+      exp_month INTEGER NOT NULL,
+      exp_year INTEGER NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS session_reminders (
+      id TEXT PRIMARY KEY,
+      booking_id TEXT NOT NULL,
+      session_key TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      sent_at TEXT NOT NULL,
+      UNIQUE (booking_id, session_key, channel)
+    );
+    INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('reminders_enabled', '1', '1970-01-01T00:00:00.000Z');
+  `);
+  ensureColumn(db, "mock_checkouts", "purpose", "TEXT");
+  ensureColumn(db, "mock_checkouts", "save_card", "INTEGER NOT NULL DEFAULT 0");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS swimmer_profiles (
+      user_id TEXT PRIMARY KEY,
+      full_name TEXT NOT NULL,
+      address_line1 TEXT NOT NULL,
+      address_line2 TEXT NOT NULL DEFAULT '',
+      town TEXT NOT NULL,
+      postcode TEXT NOT NULL,
+      date_of_birth TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      emergency_name TEXT NOT NULL,
+      emergency_relationship TEXT NOT NULL,
+      emergency_phone TEXT NOT NULL,
+      medical_none INTEGER NOT NULL,
+      medical_notes TEXT NOT NULL DEFAULT '',
+      swimming_level TEXT NOT NULL,
+      consent_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      booking_id TEXT,
+      kind TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS email_outbox (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      booking_id TEXT,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
 
   ensureColumn(db, "slots", "enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "slots", "cancelled", "INTEGER NOT NULL DEFAULT 0");

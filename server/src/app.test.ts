@@ -144,7 +144,32 @@ async function listCourses(ctx: Ctx, token: string): Promise<CourseRunDto[]> {
   return response.json.courses as CourseRunDto[];
 }
 
+async function ensureProfile(ctx: Ctx, token: string) {
+  const saved = await api(ctx.base, "/api/profile", {
+    method: "PUT",
+    token,
+    body: {
+      fullName: "Test Swimmer",
+      addressLine1: "1 Harbour Lane",
+      addressLine2: "",
+      town: "Fareham",
+      postcode: "PO16 0DZ",
+      dateOfBirth: "1990-04-02",
+      phone: "07700900123",
+      emergencyName: "Alex Swimmer",
+      emergencyRelationship: "Partner",
+      emergencyPhone: "07700900456",
+      medicalNone: false,
+      medicalNotes: "Mild asthma",
+      swimmingLevel: "improver",
+      consent: true,
+    },
+  });
+  assert.equal(saved.status, 200, saved.text);
+}
+
 async function payForCourse(ctx: Ctx, token: string, courseRunId: string): Promise<BookingDto> {
+  await ensureProfile(ctx, token);
   const created = await api(ctx.base, "/api/bookings", {
     method: "POST",
     token,
@@ -169,6 +194,7 @@ async function payForCourse(ctx: Ctx, token: string, courseRunId: string): Promi
 }
 
 async function payFor(ctx: Ctx, token: string, slotId: string): Promise<BookingDto> {
+  await ensureProfile(ctx, token);
   const created = await api(ctx.base, "/api/bookings", {
     method: "POST",
     token,
@@ -280,6 +306,8 @@ describe("lido api", { concurrency: 1 }, () => {
       });
       assert.equal(created.status, 201, created.text);
       const slotId = created.json.slot.id as string;
+      await ensureProfile(ctx, first.token);
+      await ensureProfile(ctx, second.token);
       const held = await api(ctx.base, "/api/bookings", {
         method: "POST",
         token: first.token,
@@ -452,7 +480,16 @@ describe("lido api", { concurrency: 1 }, () => {
           paid: paid.has(sessionId),
           bookingId: sessions.get(sessionId) ?? null,
           paymentIntentId: paid.has(sessionId) ? "pi_test" : null,
+          customerId: null,
+          paymentMethodId: null,
+          purpose: "booking" as const,
         };
+      },
+      async chargeOffSession() {
+        return { ok: false as const, message: "The saved card was declined." };
+      },
+      async describeCard() {
+        return null;
       },
     };
     let webhook: { type: string; sessionId: string | null } = { type: "checkout.session.completed", sessionId: null };
@@ -460,6 +497,7 @@ describe("lido api", { concurrency: 1 }, () => {
     const ctx = await createTestApp({ payments, verifyWebhook });
     try {
       const { token } = await register(ctx);
+      await ensureProfile(ctx, token);
       const slot = roomy(await listSlots(ctx, token));
       const created = await api(ctx.base, "/api/bookings", {
         method: "POST",
@@ -715,6 +753,13 @@ describe("lido api", { concurrency: 1 }, () => {
       });
       assert.equal(duplicate.status, 409);
 
+      await ensureProfile(ctx, token);
+      const notes = await api(ctx.base, `/api/bookings/${held.json.items[0].id}/course-notes`, {
+        method: "POST",
+        token,
+        body: { goal: "Swim a length on my front", comments: "Prefer mornings" },
+      });
+      assert.equal(notes.status, 200, notes.text);
       const checkout = await api(ctx.base, "/api/basket/checkout", {
         method: "POST",
         token,
@@ -754,6 +799,180 @@ describe("lido api", { concurrency: 1 }, () => {
       const fareham = location.json.locations.find((item: { name: string }) => item.name.includes("Fareham"));
       assert.match(fareham.address, /PO16 0DZ/);
       assert.match(fareham.arrivalInstructions, /pop your shoes off/);
+      assert.equal(JSON.stringify(paid).includes("asthma"), false);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("schedules a crash course deposit up to six months ahead and requires swimmer details", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      const missing = await api(ctx.base, "/api/profile", {
+        method: "PUT",
+        token,
+        body: {
+          fullName: "A",
+          addressLine1: "1 Harbour Lane",
+          town: "Fareham",
+          postcode: "PO16 0DZ",
+          dateOfBirth: "1990-04-02",
+          phone: "07700900123",
+          emergencyName: "Alex",
+          emergencyRelationship: "Partner",
+          emergencyPhone: "07700900456",
+          medicalNone: true,
+          swimmingLevel: "basic",
+          consent: false,
+        },
+      });
+      assert.equal(missing.status, 400);
+
+      const options = await api(ctx.base, "/api/course-plans/options", { token });
+      const keys = new Set(options.json.sessions.map((session: { dateKey: string }) => session.dateKey));
+      assert.equal(keys.has("2027-03-21"), true);
+      assert.equal(keys.has("2027-03-22"), false);
+
+      const held = await api(ctx.base, "/api/basket/course", {
+        method: "POST",
+        token,
+        body: {
+          days: 3,
+          goal: "Float on my back",
+          sessions: [
+            { dateKey: "2027-02-02", hour: 6, minute: 0 },
+            { dateKey: "2027-02-03", hour: 6, minute: 0 },
+            { dateKey: "2027-02-04", hour: 6, minute: 0 },
+          ],
+        },
+      });
+      assert.equal(held.status, 201, held.text);
+      const item = held.json.items[0];
+      assert.equal(item.depositPence, 6980);
+      assert.equal(item.balancePence, 27920);
+      assert.equal(item.payTodayPence, 6980);
+      assert.equal(item.balanceStatus, "scheduled");
+      assert.match(item.balanceDueLabel, /5 January/);
+
+      const blocked = await api(ctx.base, "/api/basket/checkout", {
+        method: "POST",
+        token,
+        body: { returnUrl: "http://127.0.0.1:9/payment/success" },
+      });
+      assert.equal(blocked.status, 409);
+      assert.equal(blocked.json.error.code, "PROFILE_REQUIRED");
+
+      await ensureProfile(ctx, token);
+      const checkout = await api(ctx.base, "/api/basket/checkout", {
+        method: "POST",
+        token,
+        body: { returnUrl: "http://127.0.0.1:9/payment/success" },
+      });
+      assert.equal(checkout.status, 200, checkout.text);
+      const payToken = new URL(checkout.json.checkoutUrl as string).searchParams.get("token");
+      const completed = await api(ctx.base, "/api/payments/mock-complete", { method: "POST", body: { token: payToken } });
+      await api(ctx.base, completed.headers.get("location") ?? "");
+      const reminder = await api(ctx.base, "/api/admin/balances/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: "2026-12-29T12:00:00.000Z" },
+      });
+      assert.equal(reminder.status, 200, reminder.text);
+      assert.equal(reminder.json.reminded, 1);
+      const notes = await api(ctx.base, "/api/notifications", { token });
+      assert.match(notes.json.notifications[0].message, /£279\.20/);
+      const charged = await api(ctx.base, "/api/admin/balances/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: "2027-01-05T10:00:00.000Z" },
+      });
+      assert.equal(charged.json.charged, 1);
+      const paid = await api(ctx.base, `/api/bookings/${item.id}`, { token });
+      assert.equal(paid.json.booking.balanceStatus, "paid");
+      assert.equal(JSON.stringify(paid.json).includes("asthma"), false);
+
+      ctx.db.prepare(`UPDATE bookings SET balance_status = 'scheduled', balance_paid_at = NULL, stripe_payment_method_id = 'mock_pm_fail' WHERE id = ?`).run(item.id);
+      ctx.db.prepare(`UPDATE payment_cards SET stripe_payment_method_id = 'mock_pm_fail' WHERE user_id = (SELECT user_id FROM bookings WHERE id = ?)`).run(item.id);
+      const failed = await api(ctx.base, "/api/admin/balances/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: "2027-01-05T11:00:00.000Z" },
+      });
+      assert.equal(failed.json.overdue, 1);
+      const overdue = await api(ctx.base, `/api/bookings/${item.id}`, { token });
+      assert.equal(overdue.json.booking.balanceStatus, "overdue");
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("sends each session reminder once and follows a rearranged time, and can pay with a saved card", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      await ensureProfile(ctx, token);
+      const slots = await listSlots(ctx, token);
+      const now = Date.parse("2026-09-21T12:00:00.000Z");
+      const slot = slots.find((item) => item.bookable && Date.parse(item.startsAt) - now > 26 * 60 * 60 * 1000 && Date.parse(item.startsAt) - now < 80 * 60 * 60 * 1000);
+      assert.ok(slot);
+      const booking = await payFor(ctx, token, slot.id);
+      const firstAt = new Date(Date.parse(slot.startsAt) - 23 * 60 * 60 * 1000).toISOString();
+      const first = await api(ctx.base, "/api/admin/reminders/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: firstAt },
+      });
+      assert.equal(first.status, 200, first.text);
+      assert.ok(first.json.sent >= 1);
+      const again = await api(ctx.base, "/api/admin/reminders/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: firstAt },
+      });
+      assert.equal(again.json.sent, 0);
+      const before = ctx.db.prepare(`SELECT session_key FROM session_reminders WHERE booking_id = ? AND channel = 'email'`).all(booking.id) as { session_key: string }[];
+      assert.equal(before.length, 1);
+      const target = slots.find((item) => item.bookable && item.id !== slot.id && Date.parse(item.startsAt) > Date.parse(slot.startsAt) + 60 * 60 * 1000);
+      assert.ok(target);
+      const moved = await api(ctx.base, `/api/bookings/${booking.id}/reschedule`, {
+        method: "POST",
+        token,
+        body: { slotId: target.id },
+      });
+      assert.equal(moved.status, 200, moved.text);
+      const secondAt = new Date(Date.parse(target.startsAt) - 23 * 60 * 60 * 1000).toISOString();
+      const followed = await api(ctx.base, "/api/admin/reminders/run", {
+        method: "POST",
+        headers: { "x-admin-token": "test-admin" },
+        body: { asOf: secondAt },
+      });
+      assert.ok(followed.json.sent >= 1);
+      const after = ctx.db.prepare(`SELECT session_key FROM session_reminders WHERE booking_id = ? AND channel = 'email'`).all(booking.id) as { session_key: string }[];
+      assert.equal(after.length, 2);
+      assert.equal(new Set(after.map((row) => row.session_key)).size, 2);
+
+      const card = await api(ctx.base, "/api/cards", {
+        method: "POST",
+        token,
+        body: { brand: "visa", last4: "4242", expMonth: 12, expYear: 2028 },
+      });
+      assert.equal(card.status, 201, card.text);
+      assert.equal(card.json.cards[0].last4, "4242");
+      const next = slots.find((item) => item.bookable && item.id !== slot.id && item.id !== target.id);
+      assert.ok(next);
+      const held = await api(ctx.base, "/api/basket", { method: "POST", token, body: { slotId: next.id } });
+      assert.equal(held.status, 201, held.text);
+      const paid = await api(ctx.base, "/api/basket/checkout", {
+        method: "POST",
+        token,
+        body: { returnUrl: "http://127.0.0.1:9/payment/success", savedCardId: card.json.cards[0].id },
+      });
+      assert.equal(paid.status, 200, paid.text);
+      assert.equal(paid.json.paidImmediately, true);
+      assert.equal(paid.json.booking.status, "confirmed");
+      const stored = ctx.db.prepare(`SELECT last4 FROM payment_cards`).all() as { last4: string }[];
+      assert.deepEqual(stored.map((row) => row.last4), ["4242"]);
     } finally {
       await ctx.close();
     }

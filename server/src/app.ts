@@ -10,6 +10,9 @@ import { DateTime } from "luxon";
 import type { DatabaseSync } from "node:sqlite";
 import {
   adminAvailabilityPage,
+  adminCourseBookingsPage,
+  adminCustomersPage,
+  adminRemindersPage,
   adminCoursesPage,
   adminDisabledPage,
   adminLocationsPage,
@@ -136,6 +139,25 @@ const courseBasketSchema = z.object({
   locationId: z.string().min(1).optional(),
   partySize: z.union([z.literal(1), z.literal(2)]).optional(),
   sessions: z.array(courseSessionSchema).min(3).max(5),
+  goal: z.string().optional(),
+  comments: z.string().optional(),
+});
+
+const profileSchema = z.object({
+  fullName: z.string(),
+  addressLine1: z.string(),
+  addressLine2: z.string().optional(),
+  town: z.string(),
+  postcode: z.string(),
+  dateOfBirth: z.string(),
+  phone: z.string(),
+  emergencyName: z.string(),
+  emergencyRelationship: z.string(),
+  emergencyPhone: z.string(),
+  medicalNone: z.boolean(),
+  medicalNotes: z.string().optional(),
+  swimmingLevel: z.string(),
+  consent: z.boolean(),
 });
 
 const adminCourseProductSchema = z.object({
@@ -608,8 +630,10 @@ export function createApp(deps: AppDeps) {
     "/api/basket/checkout",
     requireUser,
     route(async (req, res) => {
-      const body = returnSchema.parse(req.body);
-      res.json(await service.checkoutBasket(userId(res), body.returnUrl));
+      const body = returnSchema
+        .extend({ savedCardId: z.string().optional(), saveCard: z.boolean().optional() })
+        .parse(req.body);
+      res.json(await service.checkoutBasket(userId(res), body.returnUrl, { savedCardId: body.savedCardId, saveCard: body.saveCard }));
     }),
   );
 
@@ -1192,6 +1216,160 @@ export function createApp(deps: AppDeps) {
     }),
   );
 
+  app.get(
+    "/api/profile",
+    requireUser,
+    route(async (_req, res) => {
+      res.json(service.profile(userId(res)));
+    }),
+  );
+
+  app.put(
+    "/api/profile",
+    requireUser,
+    route(async (req, res) => {
+      res.json(service.saveProfile(userId(res), profileSchema.parse(req.body)));
+    }),
+  );
+
+  app.post(
+    "/api/bookings/:id/course-notes",
+    requireUser,
+    route(async (req, res) => {
+      const body = z.object({ goal: z.string(), comments: z.string().optional() }).parse(req.body);
+      res.json({ booking: service.saveCourseNotes(userId(res), param(req.params.id), body) });
+    }),
+  );
+
+  app.get(
+    "/api/notifications",
+    requireUser,
+    route(async (_req, res) => {
+      res.json({ notifications: service.notifications(userId(res)) });
+    }),
+  );
+
+  app.post(
+    "/api/bookings/:id/balance-checkout",
+    requireUser,
+    route(async (req, res) => {
+      const body = returnSchema.parse(req.body);
+      res.json(await service.startBalanceCheckout(userId(res), param(req.params.id), body.returnUrl));
+    }),
+  );
+
+  app.post(
+    "/api/admin/balances/run",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const asOf = typeof req.body?.asOf === "string" ? req.body.asOf : undefined;
+      res.json(await service.runBalanceSweep(asOf ? DateTime.fromISO(asOf) : undefined));
+    }),
+  );
+
+  app.get(
+    "/api/cards",
+    requireUser,
+    route(async (_req, res) => {
+      res.json({ cards: service.listCards(userId(res)) });
+    }),
+  );
+
+  app.post(
+    "/api/cards",
+    requireUser,
+    route(async (req, res) => {
+      const body = z
+        .object({
+          brand: z.string().optional(),
+          last4: z.string(),
+          expMonth: z.number().int().min(1).max(12),
+          expYear: z.number().int().min(2026).max(2100),
+        })
+        .parse(req.body);
+      res.status(201).json({ cards: await service.addMockCard(userId(res), body) });
+    }),
+  );
+
+  app.post(
+    "/api/cards/:id/default",
+    requireUser,
+    route(async (req, res) => {
+      res.json({ cards: service.setDefaultCard(userId(res), param(req.params.id)) });
+    }),
+  );
+
+  app.delete(
+    "/api/cards/:id",
+    requireUser,
+    route(async (req, res) => {
+      res.json({ cards: service.removeCard(userId(res), param(req.params.id)) });
+    }),
+  );
+
+  app.get(
+    "/api/notification-settings",
+    requireUser,
+    route(async (_req, res) => {
+      res.json(service.notificationSettings(userId(res)));
+    }),
+  );
+
+  app.put(
+    "/api/notification-settings",
+    requireUser,
+    route(async (req, res) => {
+      const body = z
+        .object({ pushOptOut: z.boolean().optional(), expoPushToken: z.string().nullable().optional() })
+        .parse(req.body);
+      res.json(service.saveNotificationSettings(userId(res), body));
+    }),
+  );
+
+  app.post(
+    "/api/admin/reminders/run",
+    route(async (req, res) => {
+      requireAdmin(req);
+      const asOf = typeof req.body?.asOf === "string" ? req.body.asOf : undefined;
+      res.json(await service.runSessionReminders(asOf ? DateTime.fromISO(asOf) : undefined));
+    }),
+  );
+
+  app.get(
+    "/admin/reminders",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(adminRemindersPage({ ...service.reminderAdmin(), notice: queryValue(req.query.notice) }));
+    }),
+  );
+
+  app.post(
+    "/admin/reminders",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.setReminderSettings({
+        enabled: field(req.body, "enabled") === "1",
+      });
+      res.redirect(303, "/admin/reminders?notice=" + encodeURIComponent("Reminder settings saved."));
+    }),
+  );
+
+  app.get(
+    "/admin/customers",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(adminCustomersPage({ customers: service.listAdminCustomers() }));
+    }),
+  );
+
+  app.get(
+    "/admin/course-bookings",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(adminCourseBookingsPage({ bookings: service.listAdminCourseBookings(), notice: queryValue(req.query.notice) }));
+    }),
+  );
+
   app.use((_req, res) => {
     sendError(res, 404, "NOT_FOUND", "That route doesn't exist.");
   });
@@ -1214,5 +1392,8 @@ export function createApp(deps: AppDeps) {
     sendError(res, 500, "INTERNAL", "Something went wrong. Please try again.");
   });
 
-  return app;
+  return Object.assign(app, {
+    runBalanceSweep: (asOf?: string) => service.runBalanceSweep(asOf ? DateTime.fromISO(asOf) : undefined),
+    runSessionReminders: (asOf?: string) => service.runSessionReminders(asOf ? DateTime.fromISO(asOf) : undefined),
+  });
 }

@@ -56,13 +56,16 @@ function adminShell(title: string, body: string, notice?: string | null): string
         <h1>${esc(title)}</h1>
       </div>
     </div>
-    <p>Manage locations, weekly 30/60 minute lessons, one-off slots, and crash courses. Customers book up to 6 weeks ahead.</p>
+    <p>Manage locations, weekly 30/60 minute lessons, one-off slots, and crash courses. Single lessons book up to 6 weeks ahead. Crash courses book up to 6 months ahead.</p>
     <nav>
       <a href="/admin">Overview</a>
       <a href="/admin/locations">Locations</a>
       <a href="/admin/availability">Weekly availability</a>
       <a href="/admin/sessions">Upcoming sessions</a>
       <a href="/admin/courses">Crash courses</a>
+      <a href="/admin/course-bookings">Course bookings</a>
+      <a href="/admin/customers">Customers</a>
+      <a href="/admin/reminders">Reminders</a>
       <a href="/admin/logout">Sign out</a>
     </nav>
   </header>
@@ -183,6 +186,111 @@ function ruleForm(locations: LocationDto[], action: string, rule?: AvailabilityR
     <div style="margin-top:12px"><label>Short description</label><textarea name="blurb" required>${esc(rule?.blurb ?? "")}</textarea></div>
     <div class="row"><button type="submit">${esc(submitLabel)}</button></div>
   </form>`;
+}
+
+export function adminCustomersPage(input: {
+  customers: { name: string; email: string; card: string; bookings: { reference: string; status: string; kind: string }[] }[];
+}): string {
+  const rows = input.customers
+    .map(
+      (customer) => `<tr>
+        <td><strong>${esc(customer.name)}</strong><br /><span class="muted">${esc(customer.email)}</span></td>
+        <td>${esc(customer.card)}</td>
+        <td>${customer.bookings.map((booking) => `${esc(booking.reference)} · ${esc(booking.kind)} · ${esc(booking.status)}`).join("<br />") || `<span class="muted">No bookings</span>`}</td>
+      </tr>`,
+    )
+    .join("");
+  return adminShell(
+    "Customers",
+    `<div class="card">
+      <h2>Saved cards and booking history</h2>
+      <p class="muted">Only the card brand and last four digits are stored. The full number stays with Stripe.</p>
+      <table>
+        <thead><tr><th>Customer</th><th>Saved card</th><th>Bookings</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="3" class="muted">No customers yet.</td></tr>`}</tbody>
+      </table>
+    </div>`,
+  );
+}
+
+export function adminRemindersPage(input: {
+  enabled: boolean;
+  log: { channel: string; subject: string; body: string; sent_at: string }[];
+  notice?: string | null;
+}): string {
+  const rows = input.log
+    .map(
+      (entry) => `<tr>
+        <td>${esc(entry.channel)}<br /><span class="muted">${esc(entry.sent_at)}</span></td>
+        <td><strong>${esc(entry.subject)}</strong><br /><span class="muted">${esc(entry.body).replaceAll("\n", "<br />")}</span></td>
+      </tr>`,
+    )
+    .join("");
+  return adminShell(
+    "Reminders",
+    `<form method="post" action="/admin/reminders" class="card">
+      <h2>24-hour session reminders</h2>
+      <p class="muted">Each session gets one email and one app notification about 24 hours before it starts. Customers can turn the app notification off. Email stays on.</p>
+      <label><input type="checkbox" name="enabled" value="1"${input.enabled ? " checked" : ""} /> Send reminders</label>
+      <button type="submit">Save</button>
+    </form>
+    <div class="card">
+      <h2>Sent log</h2>
+      <table>
+        <thead><tr><th>When</th><th>Message</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="2" class="muted">No reminders sent yet.</td></tr>`}</tbody>
+      </table>
+    </div>`,
+    input.notice,
+  );
+}
+
+export function adminCourseBookingsPage(input: {
+  bookings: {
+    reference: string;
+    status: string;
+    priceLabel: string;
+    depositLabel: string;
+    balanceLabel: string;
+    balanceStatus: string;
+    balanceDueLabel: string | null;
+    goal: string | null;
+    comments: string | null;
+    swimmer: {
+      fullName: string;
+      address: string;
+      dateOfBirth: string | null;
+      phone: string | null;
+      emergency: string;
+      swimmingLevel: string | null;
+      medical: string | null;
+    } | null;
+  }[];
+  notice?: string | null;
+}): string {
+  const rows = input.bookings
+    .map((booking) => {
+      const swimmer = booking.swimmer;
+      return `<tr>
+        <td><strong>${esc(booking.reference)}</strong><br /><span class="muted">${esc(booking.status)} · ${esc(booking.balanceStatus)}</span></td>
+        <td>${esc(booking.depositLabel)} deposit<br />${esc(booking.balanceLabel)} balance${booking.balanceDueLabel ? `<br /><span class="muted">Due ${esc(booking.balanceDueLabel)}</span>` : ""}<br />Package ${esc(booking.priceLabel)}</td>
+        <td>${swimmer ? `${esc(swimmer.fullName)}<br /><span class="muted">${esc(swimmer.address)}</span><br />${esc(swimmer.phone ?? "")}<br />DOB ${esc(swimmer.dateOfBirth ?? "")}<br />Level ${esc(swimmer.swimmingLevel ?? "")}<br />Emergency ${esc(swimmer.emergency)}` : `<span class="muted">No swimmer details</span>`}</td>
+        <td><strong>Medical</strong><br />${esc(swimmer?.medical ?? "Not provided")}<br /><br /><strong>Goal</strong><br />${esc(booking.goal ?? "—")}<br /><br /><strong>Comments</strong><br />${esc(booking.comments || "—")}</td>
+      </tr>`;
+    })
+    .join("");
+  return adminShell(
+    "Course bookings",
+    `<div class="card">
+      <h2>Crash course payments and swimmer details</h2>
+      <p class="muted">Medical notes are shown here for pool staff only. They are not included on the customer's booking feed.</p>
+      <table>
+        <thead><tr><th>Booking</th><th>Payment</th><th>Swimmer</th><th>Safety and goals</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" class="muted">No crash course bookings yet.</td></tr>`}</tbody>
+      </table>
+    </div>`,
+    input.notice,
+  );
 }
 
 export function adminLocationsPage(input: {
