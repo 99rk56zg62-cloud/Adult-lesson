@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, serif } from "@/theme";
+import { colors, heading, strong } from "@/theme";
 import type { DayAvailability } from "@/types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -118,20 +118,20 @@ const styles = StyleSheet.create({
   wrap: { backgroundColor: colors.white, borderRadius: 18, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 10 },
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { paddingVertical: 6, paddingHorizontal: 8 },
-  navText: { color: colors.pool, fontWeight: "700" },
-  month: { fontFamily: serif, fontSize: 20, fontWeight: "700", color: colors.ink },
+  navText: { color: colors.atlantic, fontFamily: strong, fontSize: 14 },
+  month: { fontFamily: heading, fontSize: 20, fontWeight: "700", color: colors.ink },
   weekdays: { flexDirection: "row" },
   weekday: { flex: 1, textAlign: "center", color: colors.muted, fontSize: 12, fontWeight: "700" },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: "14.2857%" as const, aspectRatio: 1, padding: 2 },
-  day: { borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#F3EEE4" },
-  open: { backgroundColor: "#E7F2F0" },
-  full: { backgroundColor: "#EFE8DC", opacity: 0.55 },
-  selected: { backgroundColor: colors.deep },
-  dayNum: { fontWeight: "700", color: colors.ink },
+  day: { borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.dayIdle },
+  open: { backgroundColor: colors.openDay },
+  full: { backgroundColor: colors.line, opacity: 0.7 },
+  selected: { backgroundColor: colors.atlantic },
+  dayNum: { fontFamily: heading, color: colors.ink },
   muted: { color: colors.muted },
   selectedText: { color: colors.white },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.pool, marginTop: 3 },
-  dotOn: { backgroundColor: colors.sand },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.atlantic, marginTop: 3 },
+  dotOn: { backgroundColor: colors.white },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 16 },
 });

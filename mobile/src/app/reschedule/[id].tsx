@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { api, messageOf } from "@/api";
 import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { Booking, CourseRun, DayAvailability, Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -89,7 +89,6 @@ export default function RescheduleScreen() {
 
   return (
     <Phone>
-      <TopBar tone="dark" title={isCourse ? "New course run" : "New time"} subtitle="You won't be charged again." back />
       {!booking && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 28 }} /> : null}
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
@@ -178,7 +177,7 @@ export default function RescheduleScreen() {
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 24 },
   lead: { color: colors.ink, lineHeight: 21 },
-  dayTitle: { fontFamily: serif, fontSize: 22, fontWeight: "700", color: colors.ink, marginTop: 4 },
+  dayTitle: { fontFamily: heading, fontSize: 22, fontWeight: "700", color: colors.ink, marginTop: 4 },
   empty: { color: colors.muted, lineHeight: 20 },
   timeRow: {
     flexDirection: "row",
@@ -192,7 +191,7 @@ const styles = StyleSheet.create({
   selected: { borderColor: colors.pool, borderWidth: 2 },
   bar: { width: 6, alignSelf: "stretch" },
   body: { flex: 1, padding: 12, gap: 2 },
-  time: { fontFamily: serif, fontSize: 20, fontWeight: "700", color: colors.ink },
+  time: { fontFamily: heading, fontSize: 20, fontWeight: "700", color: colors.ink },
   title: { fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted, fontSize: 13 },
   price: { fontWeight: "700", paddingRight: 12, color: colors.ink },

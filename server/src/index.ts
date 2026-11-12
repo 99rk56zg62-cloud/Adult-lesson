@@ -5,6 +5,7 @@ import { createCalendarGateway } from "./calendar.js";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db.js";
 import { createMockPayments, createStripePayments } from "./payments.js";
+import { BUSINESS_NAME } from "../../mobile/src/brand.js";
 import { DEMO_EMAIL, seedDatabase } from "./seed.js";
 
 const config = loadConfig(process.env);
@@ -43,7 +44,7 @@ const app = createApp({
 });
 
 app.listen(config.port, () => {
-  console.log(`Lido API listening on port ${config.port}`);
+  console.log(`${BUSINESS_NAME} API listening on port ${config.port}`);
   console.log(`Public URL ${config.apiPublicUrl}`);
   console.log(`Payments: ${config.paymentsMode}`);
   console.log(`Google Calendar: ${calendar.configured ? "configured" : "not configured"}`);

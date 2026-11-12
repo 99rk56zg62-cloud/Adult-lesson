@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { BUSINESS_NAME } from "../../mobile/src/brand.js";
 import type { DatabaseSync } from "node:sqlite";
 import { DateTime } from "luxon";
 import {
@@ -373,14 +374,14 @@ export function createService(deps: ServiceDeps) {
         const last = sessions[sessions.length - 1];
         if (!first || !last) return null;
         summary = `Crash course — ${run.title}`;
-        description = `Lido booking ${booking.reference}. ${run.days}-day adult crash course with ${run.instructor}.`;
+        description = `${BUSINESS_NAME} booking ${booking.reference}. ${run.days}-day adult crash course with ${run.instructor}.`;
         location = `${run.location}, ${run.address}`;
         startsAt = fromIso(first.starts_at);
         endsAt = fromIso(last.ends_at);
       } else if (booking.slot_id) {
         const slot = requireSlot(booking.slot_id);
         summary = `Swimming lesson — ${slot.title}`;
-        description = `Lido booking ${booking.reference}. Adult swimming lesson with ${slot.instructor}.`;
+        description = `${BUSINESS_NAME} booking ${booking.reference}. Adult swimming lesson with ${slot.instructor}.`;
         location = `${slot.location}, ${slot.address}`;
         startsAt = fromIso(slot.starts_at);
         endsAt = fromIso(slot.ends_at);
@@ -925,7 +926,7 @@ export function createService(deps: ServiceDeps) {
           return {
             returnUrl: parsed.returnUrl,
             ok: false,
-            message: "Google didn't return a refresh token. Remove Lido's access in your Google Account permissions and try again.",
+            message: `Google didn't return a refresh token. Remove ${BUSINESS_NAME}'s access in your Google Account permissions and try again.`,
           };
         }
         db.prepare(`UPDATE users SET google_refresh_token = ?, google_email = ? WHERE id = ?`).run(

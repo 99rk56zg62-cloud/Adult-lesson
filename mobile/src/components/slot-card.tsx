@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { Slot } from "@/types";
 
 export function SlotCard({ slot, onPress, selected = false }: { slot: Slot; onPress: () => void; selected?: boolean }) {
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
   full: { opacity: 0.62 },
   bar: { width: 6 },
   body: { flex: 1, paddingVertical: 14, paddingLeft: 12, paddingRight: 8, gap: 2 },
-  time: { fontFamily: serif, fontSize: 18, fontWeight: "700", color: colors.ink },
+  time: { fontFamily: heading, fontSize: 18, fontWeight: "700", color: colors.ink },
   title: { fontSize: 15, fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted, fontSize: 13, marginTop: 2 },
   side: { alignItems: "flex-end", justifyContent: "center", paddingRight: 14, gap: 4 },

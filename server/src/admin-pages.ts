@@ -1,4 +1,5 @@
 import { LESSON_DURATIONS, WEEKDAY_LABELS } from "./availability.js";
+import { BUSINESS_NAME, brandCss, brandFontLinks } from "./brand-style.js";
 import { esc } from "./pages.js";
 import type { AvailabilityRuleDto, CourseProductDto, CourseRunDto, LocationDto, SlotDto } from "./types.js";
 
@@ -9,43 +10,52 @@ function adminShell(title: string, body: string, notice?: string | null): string
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex" />
-  <title>${esc(title)} · Lido admin</title>
+  <title>${esc(title)} · ${esc(BUSINESS_NAME)} admin</title>
+  ${brandFontLinks()}
   <style>
+    ${brandCss}
     :root { color-scheme: light; }
-    body { margin: 0; background: #d9d0c3; color: #14262b; font-family: "Segoe UI", sans-serif; }
-    header { background: #0c2e33; color: #fff; padding: 22px 20px 18px; }
-    header .brand { font: 700 12px Georgia, serif; letter-spacing: 0.16em; color: #e7d3b0; }
-    header h1 { font: 700 32px Georgia, "Iowan Old Style", Palatino, serif; margin: 8px 0 4px; }
-    header p { margin: 0; color: #d7e6e4; }
+    body { margin: 0; background: var(--surround); color: var(--ink); font-family: var(--font); }
+    header { background: var(--navy); color: var(--white); padding: 22px 20px 18px; }
+    header .brand-row { display: flex; align-items: center; gap: 14px; }
+    header img { height: 72px; width: auto; }
+    header .brand { font-weight: 600; font-size: 13px; color: var(--sea-glass); }
+    header h1 { font-weight: 900; font-size: 32px; margin: 4px 0; }
+    header p { margin: 0; color: var(--header-muted); }
     nav { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    nav a, .linkish { color: #e7d3b0; font-weight: 600; text-decoration: none; }
+    nav a, .linkish { color: var(--white); font-weight: 700; text-decoration: none; }
     main { max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
-    .notice { background: #e5f2ea; color: #1f6b45; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
-    .warn { background: #f8efd9; color: #8a5a00; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
-    .card { background: #f6f1e8; border: 1px solid #e4d8c8; border-radius: 18px; padding: 18px; margin-bottom: 16px; }
-    .card h2 { font: 700 24px Georgia, serif; margin: 0 0 12px; }
+    .notice { background: var(--ok-bg); color: var(--ok); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+    .warn { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+    .card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; padding: 18px; margin-bottom: 16px; }
+    .card h2 { font-weight: 800; font-size: 24px; margin: 0 0 12px; }
     .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
     label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-    input, select, textarea { width: 100%; box-sizing: border-box; border: 1px solid #e4d8c8; border-radius: 10px; padding: 10px 12px; font: 16px "Segoe UI", sans-serif; background: #fff; }
+    input, select, textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 16px var(--font); background: var(--white); color: var(--ink); }
     textarea { min-height: 72px; }
-    button, .button { display: inline-block; border: 0; border-radius: 12px; padding: 11px 16px; background: #0c2e33; color: #fff; font: 600 15px "Segoe UI", sans-serif; cursor: pointer; text-decoration: none; }
-    button.secondary, .button.secondary { background: #fff; color: #14262b; border: 1px solid #e4d8c8; }
-    button.danger { background: #8e2f2f; }
+    button, .button { display: inline-block; border: 0; border-radius: 12px; padding: 11px 16px; background: var(--red); color: var(--white); font: 700 15px var(--font); cursor: pointer; text-decoration: none; }
+    button.secondary, .button.secondary { background: var(--white); color: var(--navy); border: 1px solid var(--line); }
+    button.danger { background: var(--danger); color: var(--white); }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e4d8c8; vertical-align: top; }
-    th { color: #5c6b70; font-size: 12px; letter-spacing: 0.04em; }
-    .muted { color: #5c6b70; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; }
+    .muted { color: var(--muted); }
     .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
-    .on { background: #e5f2ea; color: #1f6b45; }
-    .off { background: #f8e8e4; color: #8e2f2f; }
-    .full { background: #f8efd9; color: #8a5a00; }
+    .on { background: var(--ok-bg); color: var(--ok); }
+    .off { background: var(--danger-bg); color: var(--danger); }
+    .full { background: var(--warn-bg); color: var(--warn); }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand">LIDO · BACK OFFICE</div>
-    <h1>${esc(title)}</h1>
+    <div class="brand-row">
+      <img src="/brand/SSA_Logo_Primary_Stacked_Full-Colour_RGB_white.svg" alt="Swim School Academy" />
+      <div>
+        <div class="brand">${esc(BUSINESS_NAME)} · Back office</div>
+        <h1>${esc(title)}</h1>
+      </div>
+    </div>
     <p>Manage locations, weekly 30/60 minute lessons, one-off slots, and crash courses. Customers book up to 6 weeks ahead.</p>
     <nav>
       <a href="/admin">Overview</a>
@@ -70,22 +80,26 @@ export function adminLoginPage(error?: string | null): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Lido admin</title>
+  <title>${esc(BUSINESS_NAME)} admin</title>
+  ${brandFontLinks()}
   <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0c2e33; font-family: "Segoe UI", sans-serif; }
-    form { width: min(420px, 92vw); background: #f6f1e8; border-radius: 22px; padding: 28px 22px; }
-    .brand { letter-spacing: 0.16em; font-weight: 700; color: #0f6e6a; font-size: 12px; }
-    h1 { font: 700 34px Georgia, serif; margin: 10px 0; color: #14262b; }
-    p { color: #5c6b70; line-height: 1.45; }
+    ${brandCss}
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--navy); font-family: var(--font); }
+    form { width: min(420px, 92vw); background: var(--paper); border-radius: 22px; padding: 28px 22px; }
+    img { display: block; width: 160px; height: auto; margin: 0 auto 8px; }
+    .brand { font-weight: 600; color: var(--atlantic); font-size: 14px; text-align: center; }
+    h1 { font-weight: 900; font-size: 34px; margin: 10px 0; color: var(--navy); text-align: center; }
+    p { color: var(--muted); line-height: 1.45; }
     label { display: block; font-weight: 700; margin-bottom: 6px; }
-    input { width: 100%; box-sizing: border-box; border: 1px solid #e4d8c8; border-radius: 12px; padding: 12px 14px; font-size: 16px; }
-    button { width: 100%; margin-top: 16px; border: 0; border-radius: 14px; padding: 14px; background: #0c2e33; color: #fff; font: 600 16px "Segoe UI", sans-serif; }
-    .err { background: #f8e8e4; color: #8e2f2f; border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+    input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: 16px var(--font); }
+    button { width: 100%; margin-top: 16px; border: 0; border-radius: 14px; padding: 14px; background: var(--red); color: var(--white); font: 700 16px var(--font); }
+    .err { background: var(--danger-bg); color: var(--danger); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
   </style>
 </head>
 <body>
   <form method="post" action="/admin/login">
-    <div class="brand">LIDO ADMIN</div>
+    <img src="/brand/SSA_Logo_Primary_Stacked_Full-Colour_RGB.svg" alt="Swim School Academy" />
+    <div class="brand">${esc(BUSINESS_NAME)}</div>
     <h1>Staff sign-in</h1>
     <p>Enter the <strong>ADMIN_TOKEN</strong> from the API environment. Outside production the default is <code>lido-dev-admin</code>.</p>
     ${error ? `<div class="err">${esc(error)}</div>` : ""}
@@ -397,8 +411,11 @@ export function adminCoursesPage(input: {
 }
 
 export function adminDisabledPage(): string {
-  return `<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><title>Admin disabled</title></head>
-  <body style="font-family:Segoe UI,sans-serif;padding:40px;background:#f6f1e8">
+  return `<!doctype html><html lang="en-GB"><head><meta charset="utf-8" /><title>Admin disabled</title>
+  ${brandFontLinks()}
+  <style>${brandCss} body { font-family: var(--font); padding: 40px; background: var(--paper); color: var(--ink); }</style>
+  </head>
+  <body>
   <h1>Admin is switched off</h1>
   <p>Set <code>ADMIN_TOKEN</code> on the API and restart it.</p>
   </body></html>`;

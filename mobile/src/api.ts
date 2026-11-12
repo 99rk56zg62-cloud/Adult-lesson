@@ -43,7 +43,7 @@ async function request<T>(path: string, options?: { method?: string; body?: unkn
       body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch {
-    throw new ApiError(0, "NETWORK", "Can't reach the Lido server. Check that it is running and EXPO_PUBLIC_API_URL points at it.");
+    throw new ApiError(0, "NETWORK", "Can't reach the booking server. Check that it is running and EXPO_PUBLIC_API_URL points at it.");
   }
   const text = await response.text();
   let payload: any = null;

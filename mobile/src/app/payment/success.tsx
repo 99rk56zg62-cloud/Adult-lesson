@@ -5,7 +5,8 @@ import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
 import { Banner, Button, Phone } from "@/components/ui";
 import { clearPending, loadPending } from "@/storage";
-import { colors, serif } from "@/theme";
+import { BUSINESS_NAME } from "@/brand";
+import { colors, heading } from "@/theme";
 
 function one(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -52,7 +53,7 @@ export default function PaymentSuccessScreen() {
   return (
     <Phone>
       <View style={styles.center}>
-        <Text style={styles.word}>Lido</Text>
+        <Text style={styles.word}>{BUSINESS_NAME}</Text>
         {error ? (
           <>
             <Banner tone="danger" text={error} />
@@ -71,6 +72,6 @@ export default function PaymentSuccessScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.deep, alignItems: "center", justifyContent: "center", padding: 24, gap: 16 },
-  word: { fontFamily: serif, fontSize: 48, color: colors.white, fontWeight: "700" },
-  note: { color: "#D7E6E4" },
+  word: { fontFamily: heading, fontSize: 48, color: colors.white, fontWeight: "700" },
+  note: { color: colors.headerMuted },
 });

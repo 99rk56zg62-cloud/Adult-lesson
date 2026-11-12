@@ -1,3 +1,4 @@
+import { BUSINESS_NAME } from "../../mobile/src/brand.js";
 import { DateTime } from "luxon";
 import { COURSE_DAILY_MINUTES, WEEKDAY_LABELS, clockMinutesLabel } from "./availability.js";
 import { getBookingBlock, getRescheduleBlock, spotsRemaining, RESCHEDULE_CUTOFF_MS } from "./rules.js";
@@ -64,7 +65,7 @@ export function googleCalendarTemplateUrl(input: {
     action: "TEMPLATE",
     text: `${label} — ${input.title}`,
     dates: `${stamp(input.startsAt)}/${stamp(input.endsAt)}`,
-    details: `Lido booking ${input.reference}. Adult swimming at ${input.location}.`,
+    details: `${BUSINESS_NAME} booking ${input.reference}. Adult swimming at ${input.location}.`,
     location: `${input.location}, ${input.address}`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;

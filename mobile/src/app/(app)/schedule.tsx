@@ -5,7 +5,7 @@ import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
 import { BookingCalendar } from "@/components/booking-calendar";
 import { Banner, TopBar } from "@/components/ui";
-import { colors, serif } from "@/theme";
+import { colors, heading, strong } from "@/theme";
 import type { CourseRun, DayAvailability, Location, Slot } from "@/types";
 
 export default function ScheduleScreen() {
@@ -70,7 +70,6 @@ export default function ScheduleScreen() {
   return (
     <View style={styles.screen}>
       <TopBar
-        tone="dark"
         title="Book a lesson"
         subtitle={windowLabel ? `Pick a date, then a time. Sessions through ${windowLabel}. UK time.` : "Pick a date, then a time."}
       />
@@ -256,21 +255,21 @@ const styles = StyleSheet.create({
   chip: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.white,
+    borderColor: colors.seaGlass,
+    backgroundColor: colors.seaGlass,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  chipSelected: { backgroundColor: colors.pool, borderColor: colors.pool },
-  chipText: { color: colors.ink, fontWeight: "600" },
+  chipSelected: { backgroundColor: colors.atlantic, borderColor: colors.atlantic },
+  chipText: { fontFamily: strong, color: colors.navy },
   chipTextSelected: { color: colors.white },
   singleLocation: { color: colors.muted, fontSize: 14 },
   dayBlock: { gap: 10 },
-  dayTitle: { fontFamily: serif, fontSize: 24, fontWeight: "700", color: colors.ink },
+  dayTitle: { fontFamily: heading, fontSize: 24, fontWeight: "700", color: colors.ink },
   daySub: { color: colors.muted, marginTop: -4 },
   empty: { textAlign: "center", color: colors.muted, marginTop: 12 },
   courseBlock: { gap: 10, marginTop: 8 },
-  sectionTitle: { fontFamily: serif, fontSize: 24, fontWeight: "700", color: colors.ink },
+  sectionTitle: { fontFamily: heading, fontSize: 24, fontWeight: "700", color: colors.ink },
   sectionSub: { color: colors.muted, lineHeight: 20, marginTop: -4 },
   note: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   timeRow: {
@@ -284,7 +283,7 @@ const styles = StyleSheet.create({
   timeDisabled: { opacity: 0.55 },
   bar: { width: 6 },
   timeBody: { flex: 1, paddingVertical: 14, paddingLeft: 12, paddingRight: 8, gap: 2 },
-  time: { fontFamily: serif, fontSize: 22, fontWeight: "700", color: colors.ink },
+  time: { fontFamily: heading, fontSize: 22, fontWeight: "700", color: colors.ink },
   title: { fontSize: 15, fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted, fontSize: 13 },
   side: { alignItems: "flex-end", justifyContent: "center", paddingRight: 14, gap: 4, maxWidth: 120 },

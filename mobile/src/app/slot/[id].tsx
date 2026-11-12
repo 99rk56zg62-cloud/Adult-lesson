@@ -6,7 +6,7 @@ import { useAuth } from "@/auth";
 import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { Slot } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -64,7 +64,6 @@ export default function SlotScreen() {
 
   return (
     <Phone>
-      <TopBar tone="dark" title={slot?.title ?? "Lesson"} subtitle={slot ? `${slot.dayLabel} · ${slot.timeLabel}` : " "} back />
       {!slot && !error ? <ActivityIndicator color={colors.pool} style={{ marginTop: 32 }} /> : null}
       {error ? (
         <View style={styles.pad}>
@@ -122,7 +121,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 36 },
   level: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   levelText: { color: colors.white, fontWeight: "700", fontSize: 12 },
-  place: { fontFamily: serif, fontSize: 28, fontWeight: "700", color: colors.ink },
+  place: { fontFamily: heading, fontSize: 28, fontWeight: "700", color: colors.ink },
   address: { color: colors.muted, marginTop: -6 },
   blurb: { fontSize: 16, lineHeight: 23, color: colors.ink },
   facts: { backgroundColor: colors.white, borderRadius: 16, borderWidth: 1, borderColor: colors.line, padding: 6 },

@@ -8,8 +8,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
-    "rootDir": "src"
+    "types": ["node"]
   },
   "include": ["src"]
 }

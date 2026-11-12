@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
 import { Banner, Button, TopBar } from "@/components/ui";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { Booking } from "@/types";
 
 export default function BookingsScreen() {
@@ -36,7 +36,6 @@ export default function BookingsScreen() {
 
   return (
     <View style={styles.screen}>
-      <TopBar tone="dark" title="My lessons" subtitle="Paid bookings, and any still waiting for payment." />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.pool} onRefresh={() => { setRefreshing(true); void load(); }} />}
         contentContainerStyle={styles.content}
@@ -93,7 +92,7 @@ function BookingRow({ booking }: { booking: Booking }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.paper },
   content: { padding: 20, gap: 12, paddingBottom: 32 },
-  section: { fontFamily: serif, fontSize: 22, fontWeight: "700", color: colors.ink, marginTop: 8 },
+  section: { fontFamily: heading, fontSize: 22, fontWeight: "700", color: colors.ink, marginTop: 8 },
   card: { flexDirection: "row", backgroundColor: colors.white, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: colors.line },
   bar: { width: 6 },
   body: { flex: 1, padding: 14, gap: 3 },
@@ -102,6 +101,6 @@ const styles = StyleSheet.create({
   meta: { color: colors.muted, lineHeight: 18 },
   hold: { color: colors.warn, fontWeight: "600", marginTop: 4 },
   empty: { gap: 12, paddingTop: 12 },
-  emptyTitle: { fontFamily: serif, fontSize: 28, fontWeight: "700", color: colors.ink },
+  emptyTitle: { fontFamily: heading, fontSize: 28, fontWeight: "700", color: colors.ink },
   emptyBody: { color: colors.muted, lineHeight: 20 },
 });

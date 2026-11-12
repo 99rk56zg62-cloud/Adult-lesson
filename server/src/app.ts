@@ -1,4 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
+import { createReadStream, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { ZodError } from "zod";
@@ -23,6 +26,22 @@ import { isMockPayments, type PaymentProvider, type WebhookVerifier } from "./pa
 import { appendQuery, isAllowedReturnUrl } from "./return-url.js";
 import { createService, type LidoService } from "./service.js";
 import { ZONE } from "./time.js";
+import { BUSINESS_NAME } from "../../mobile/src/brand.js";
+
+const brandDir = fileURLToPath(new URL("../../mobile/assets/brand/", import.meta.url));
+const brandFiles = new Set([
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB.svg",
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB.png",
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB_horizontal.svg",
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB_horizontal.png",
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB_white.svg",
+  "SSA_Logo_Primary_Stacked_Full-Colour_RGB_white.png",
+  "SSA_Wordmark_Horizontal_Reversed.svg",
+  "SSA_Wordmark_Horizontal_Reversed.png",
+  "SSA_Shark-Icon_Great-White.svg",
+  "SSA_Shark-Icon_Great-White.png",
+  "ssa-shark-icon-sand-square.png",
+]);
 
 export type AppDeps = {
   db: DatabaseSync;
@@ -299,6 +318,21 @@ export function createApp(deps: AppDeps) {
     }),
   );
 
+  app.get("/brand/:file", (req, res, next) => {
+    const file = param(req.params.file);
+    if (!brandFiles.has(file)) {
+      next();
+      return;
+    }
+    const full = path.join(brandDir, file);
+    if (!existsSync(full)) {
+      next();
+      return;
+    }
+    res.type(file.endsWith(".svg") ? "image/svg+xml" : "png");
+    createReadStream(full).pipe(res);
+  });
+
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: false }));
 
@@ -510,10 +544,10 @@ export function createApp(deps: AppDeps) {
             ? appendQuery(result.returnUrl, { session_id: sessionId, booking_id: result.booking.id })
             : null;
         if (!target) {
-          res.type("html").send(infoPage("You're booked", `Reference ${result.booking.reference}. Return to the Lido app to see the lesson.`));
+          res.type("html").send(infoPage("You're booked", `Reference ${result.booking.reference}. Return to the ${BUSINESS_NAME} app to see the lesson.`));
           return;
         }
-        sendClientRedirect(res, target, "You're booked", `Reference ${result.booking.reference}. Taking you back to Lido.`);
+        sendClientRedirect(res, target, "You're booked", `Reference ${result.booking.reference}. Taking you back to ${BUSINESS_NAME}.`);
       } catch (error) {
         if (error instanceof AppError) {
           res.status(error.status).type("html").send(infoPage("Payment not completed", error.message));

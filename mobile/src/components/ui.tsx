@@ -1,10 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, serif } from "@/theme";
+import { BUSINESS_NAME } from "@/brand";
+import { body, colors, cta, display, heading, strong } from "@/theme";
+
+const headerLogo = require("../../assets/brand/SSA_Logo_Primary_Stacked_Full-Colour_RGB_horizontal.svg");
+const headerLogoOnNavy = require("../../assets/brand/SSA_Logo_Primary_Stacked_Full-Colour_RGB_white.svg");
 
 export function Phone({ children }: { children: ReactNode }) {
   return (
@@ -15,7 +20,7 @@ export function Phone({ children }: { children: ReactNode }) {
 }
 
 export function TopBar({
-  eyebrow = "LIDO",
+  eyebrow = BUSINESS_NAME,
   title,
   subtitle,
   tone = "light",
@@ -30,7 +35,7 @@ export function TopBar({
   const insets = useSafeAreaInsets();
   const dark = tone === "dark";
   return (
-    <View style={[styles.top, { paddingTop: insets.top + 10, backgroundColor: dark ? colors.deep : colors.paper }]}>
+    <View style={[styles.top, { paddingTop: insets.top + 10, backgroundColor: dark ? colors.navy : colors.paper }]}>
       <StatusBar style={dark ? "light" : "dark"} />
       {back ? (
         <Pressable
@@ -43,9 +48,19 @@ export function TopBar({
           <Text style={[styles.backText, { color: dark ? colors.white : colors.ink }]}>Back</Text>
         </Pressable>
       ) : null}
-      <Text style={[styles.eyebrow, { color: dark ? colors.sand : colors.pool }]}>{eyebrow}</Text>
+      <View style={styles.brandRow}>
+        <Image
+          source={dark ? headerLogoOnNavy : headerLogo}
+          style={dark ? styles.logoOnNavy : styles.logo}
+          contentFit="contain"
+          accessibilityLabel="Swim School Academy"
+        />
+        <Text style={[styles.eyebrow, { color: dark ? colors.seaGlass : colors.navy }]} numberOfLines={2}>
+          {eyebrow}
+        </Text>
+      </View>
       <Text style={[styles.title, { color: dark ? colors.white : colors.ink }]}>{title}</Text>
-      {subtitle ? <Text style={[styles.subtitle, { color: dark ? "#D7E6E4" : colors.muted }]}>{subtitle}</Text> : null}
+      {subtitle ? <Text style={[styles.subtitle, { color: dark ? colors.headerMuted : colors.muted }]}>{subtitle}</Text> : null}
     </View>
   );
 }
@@ -73,7 +88,9 @@ export function Button({
         pressed && !disabled && styles.pressed,
       ]}
     >
-      <Text style={[styles.buttonText, variant === "secondary" ? styles.secondaryText : styles.primaryText]}>{label}</Text>
+      <Text style={[styles.buttonText, variant === "primary" ? styles.ctaText : null, variant === "secondary" ? styles.secondaryText : variant === "danger" ? styles.primaryText : styles.primaryLabel]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -102,7 +119,7 @@ export function Field({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#8A969A"
+        placeholderTextColor={colors.muted}
         secureTextEntry={secure}
         autoCapitalize={keyboardType === "email-address" || secure ? "none" : "words"}
         autoCorrect={false}
@@ -141,22 +158,28 @@ const styles = StyleSheet.create({
   phone: { flex: 1, width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: colors.paper },
   top: { paddingHorizontal: 20, paddingBottom: 16, gap: 4 },
   back: { flexDirection: "row", alignItems: "center", marginLeft: -6, marginBottom: 6, alignSelf: "flex-start" },
-  backText: { fontSize: 16, fontWeight: "600" },
-  eyebrow: { fontSize: 12, fontWeight: "700", letterSpacing: 1.6 },
-  title: { fontFamily: serif, fontSize: 34, lineHeight: 38, fontWeight: "700" },
-  subtitle: { fontSize: 15, lineHeight: 21, marginTop: 4 },
+  backText: { fontFamily: strong, fontSize: 16 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 },
+  logo: { width: 230, height: 46 },
+  logoOnNavy: { width: 132, height: 58 },
+  eyebrow: { flex: 1, fontFamily: strong, fontSize: 13 },
+  title: { fontFamily: display, fontSize: 34, lineHeight: 40 },
+  subtitle: { fontFamily: body, fontSize: 15, lineHeight: 21, marginTop: 4 },
   button: { minHeight: 52, borderRadius: 14, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
-  primary: { backgroundColor: colors.deep },
+  primary: { backgroundColor: colors.red },
   secondary: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line },
   danger: { backgroundColor: colors.danger },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.88 },
-  buttonText: { fontSize: 16, fontWeight: "700" },
+  buttonText: { fontFamily: strong, fontSize: 16 },
+  ctaText: { fontFamily: cta, color: colors.white },
+  primaryLabel: { color: colors.white },
   primaryText: { color: colors.white },
-  secondaryText: { color: colors.ink },
+  secondaryText: { color: colors.navy },
   field: { gap: 6 },
-  label: { fontSize: 13, fontWeight: "700", color: colors.ink },
+  label: { fontFamily: strong, fontSize: 13, color: colors.ink },
   input: {
+    fontFamily: body,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.line,
@@ -167,16 +190,16 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   banner: { borderRadius: 12, padding: 12 },
-  bannerText: { fontSize: 14, lineHeight: 20 },
+  bannerText: { fontFamily: body, fontSize: 14, lineHeight: 20 },
   chip: {
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: colors.white,
+    backgroundColor: colors.seaGlass,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.seaGlass,
   },
-  chipOn: { backgroundColor: colors.deep, borderColor: colors.deep },
-  chipText: { color: colors.ink, fontWeight: "600", fontSize: 14 },
+  chipOn: { backgroundColor: colors.atlantic, borderColor: colors.atlantic },
+  chipText: { fontFamily: strong, color: colors.navy, fontSize: 14 },
   chipTextOn: { color: colors.white },
 });

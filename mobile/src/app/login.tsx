@@ -1,10 +1,14 @@
+import { Image } from "expo-image";
 import { Redirect, router } from "expo-router";
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { messageOf } from "@/api";
 import { useAuth } from "@/auth";
+import { BUSINESS_NAME } from "@/brand";
 import { Banner, Button, Field, Phone } from "@/components/ui";
-import { colors, serif } from "@/theme";
+import { body, colors, display, heading, strong } from "@/theme";
+
+const logo = require("../../assets/brand/SSA_Logo_Primary_Stacked_Full-Colour_RGB.svg");
 
 export default function LoginScreen() {
   const { user, config, signIn } = useAuth();
@@ -33,8 +37,8 @@ export default function LoginScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <Text style={styles.wordmark}>Lido</Text>
-            <Text style={styles.tag}>Adult swimming lessons</Text>
+            <Image source={logo} style={styles.logo} contentFit="contain" accessibilityLabel="Swim School Academy" />
+            <Text style={styles.name}>{BUSINESS_NAME}</Text>
             <Text style={styles.lead}>Book a session up to six weeks ahead, pay by card, and keep it in your calendar.</Text>
           </View>
           <View style={styles.card}>
@@ -73,19 +77,21 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { flexGrow: 1 },
-  hero: { backgroundColor: colors.deep, paddingHorizontal: 24, paddingTop: 72, paddingBottom: 36, gap: 8 },
-  wordmark: { fontFamily: serif, fontSize: 56, lineHeight: 60, color: colors.white, fontWeight: "700" },
-  tag: { color: colors.sand, fontWeight: "700", letterSpacing: 0.4 },
-  lead: { color: "#D7E6E4", fontSize: 16, lineHeight: 22, marginTop: 6 },
+  content: { flexGrow: 1, backgroundColor: colors.paper },
+  hero: { paddingHorizontal: 24, paddingTop: 36, paddingBottom: 28, gap: 8, alignItems: "center" },
+  logo: { width: 280, height: 110, marginBottom: 8 },
+  name: { fontFamily: display, fontSize: 28, lineHeight: 34, color: colors.navy, textAlign: "center" },
+  lead: { fontFamily: body, color: colors.muted, fontSize: 16, lineHeight: 22, textAlign: "center" },
   card: {
-    marginTop: -18,
     marginHorizontal: 16,
-    backgroundColor: colors.paper,
+    marginBottom: 24,
+    backgroundColor: colors.white,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.line,
     padding: 18,
     gap: 14,
   },
-  heading: { fontFamily: serif, fontSize: 28, fontWeight: "700", color: colors.ink },
-  link: { textAlign: "center", color: colors.pool, fontWeight: "700", paddingVertical: 6 },
+  heading: { fontFamily: heading, fontSize: 28, color: colors.ink },
+  link: { fontFamily: strong, textAlign: "center", color: colors.atlantic, paddingVertical: 6 },
 });

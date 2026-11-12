@@ -6,7 +6,7 @@ import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
 import { Banner, Button, TopBar } from "@/components/ui";
 import { accountReturnUrl } from "@/return-url";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { CalendarStatus } from "@/types";
 
 function one(value: string | string[] | undefined): string | undefined {
@@ -71,7 +71,6 @@ export default function AccountScreen() {
 
   return (
     <View style={styles.screen}>
-      <TopBar tone="dark" title="Account" subtitle={user ? user.email : ""} />
       <ScrollView contentContainerStyle={styles.content}>
         {notice ? <Banner tone={one(params.calendar) === "connected" ? "ok" : "warn"} text={notice} /> : null}
         {error ? <Banner tone="danger" text={error} /> : null}
@@ -136,7 +135,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 14, paddingBottom: 32 },
   card: { backgroundColor: colors.white, borderRadius: 16, borderWidth: 1, borderColor: colors.line, padding: 16, gap: 8 },
   kicker: { color: colors.pool, fontSize: 12, fontWeight: "700", letterSpacing: 0.6 },
-  name: { fontFamily: serif, fontSize: 26, fontWeight: "700", color: colors.ink },
+  name: { fontFamily: heading, fontSize: 26, fontWeight: "700", color: colors.ink },
   meta: { color: colors.muted },
   body: { color: colors.ink, lineHeight: 21 },
 });

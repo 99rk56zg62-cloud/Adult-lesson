@@ -1,3 +1,5 @@
+import { BUSINESS_NAME, brandCss, brandFontLinks } from "./brand-style.js";
+
 export function esc(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
     switch (char) {
@@ -23,16 +25,18 @@ function shell(title: string, body: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex" />
   <title>${esc(title)}</title>
+  ${brandFontLinks()}
   <style>
+    ${brandCss}
     :root { color-scheme: light; }
-    body { margin: 0; background: #0c2e33; color: #14262b; font-family: Georgia, "Iowan Old Style", Palatino, serif; }
-    main { max-width: 440px; margin: 32px auto; background: #f6f1e8; border-radius: 22px; padding: 28px 22px 32px; }
-    .eyebrow { margin: 0; letter-spacing: 0.16em; font: 700 12px "Segoe UI", sans-serif; color: #0f6e6a; }
-    h1 { font-size: 34px; line-height: 1.05; margin: 10px 0; }
-    p, li { font-family: "Segoe UI", sans-serif; line-height: 1.45; }
-    .muted { color: #5c6b70; }
-    .card { background: #fff; border-radius: 16px; padding: 14px 16px; margin: 16px 0; }
-    button, .button { display: block; width: 100%; box-sizing: border-box; margin-top: 16px; background: #0c2e33; color: #fff; text-align: center; text-decoration: none; border: 0; border-radius: 14px; padding: 14px 16px; font: 600 16px "Segoe UI", sans-serif; }
+    body { margin: 0; background: var(--navy); color: var(--ink); font-family: var(--font); }
+    main { max-width: 440px; margin: 32px auto; background: var(--paper); border-radius: 22px; padding: 28px 22px 32px; }
+    .eyebrow { margin: 0; font-weight: 600; font-size: 12px; color: var(--atlantic); }
+    h1 { font-size: 34px; font-weight: 900; line-height: 1.05; margin: 10px 0; color: var(--navy); }
+    p, li { line-height: 1.45; }
+    .muted { color: var(--muted); }
+    .card { background: var(--white); border-radius: 16px; padding: 14px 16px; margin: 16px 0; }
+    button, .button { display: block; width: 100%; box-sizing: border-box; margin-top: 16px; background: var(--red); color: var(--white); text-align: center; text-decoration: none; border: 0; border-radius: 14px; padding: 14px 16px; font: 700 16px var(--font); }
     .note { font-size: 14px; }
   </style>
 </head>
@@ -54,8 +58,8 @@ export function mockCheckoutPage(input: {
     ? `<button type="submit">Return to your lesson</button>`
     : `<button type="submit">Pay ${esc(input.priceLabel)}</button>`;
   return shell(
-    "Lido test payment",
-    `<p class="eyebrow">LIDO · TEST PAYMENT</p>
+    `${BUSINESS_NAME} test payment`,
+    `<p class="eyebrow">${esc(BUSINESS_NAME)} · Test payment</p>
      <h1>${input.alreadyPaid ? "Already paid" : "Pay for your lesson"}</h1>
      <p class="muted">This stand-in runs only when the API has no Stripe secret key. With <strong>STRIPE_SECRET_KEY</strong> set, this page is Stripe Checkout instead.</p>
      <div class="card">
@@ -75,7 +79,7 @@ export function redirectPage(targetUrl: string, heading: string, message: string
   const scriptTarget = JSON.stringify(targetUrl).replace(/</g, "\\u003c");
   return shell(
     heading,
-    `<p class="eyebrow">LIDO</p>
+    `<p class="eyebrow">${esc(BUSINESS_NAME)}</p>
      <h1>${esc(heading)}</h1>
      <p>${esc(message)}</p>
      <a class="button" href="${esc(targetUrl)}">Continue</a>
@@ -86,7 +90,7 @@ export function redirectPage(targetUrl: string, heading: string, message: string
 export function infoPage(heading: string, message: string): string {
   return shell(
     heading,
-    `<p class="eyebrow">LIDO</p>
+    `<p class="eyebrow">${esc(BUSINESS_NAME)}</p>
      <h1>${esc(heading)}</h1>
      <p>${esc(message)}</p>`,
   );

@@ -5,7 +5,7 @@ import { api, messageOf } from "@/api";
 import { runCheckout } from "@/checkout";
 import { Banner, Button, Phone, TopBar } from "@/components/ui";
 import { paymentReturnUrl } from "@/return-url";
-import { colors, serif } from "@/theme";
+import { colors, heading } from "@/theme";
 import type { Booking, CalendarStatus } from "@/types";
 
 function one(value: string | string[] | undefined): string {
@@ -93,7 +93,6 @@ export default function BookingScreen() {
   return (
     <Phone>
       <TopBar
-        tone="dark"
         title={booking?.reference ?? (isCourse ? "Course" : "Lesson")}
         subtitle={pending ? "Waiting for payment" : "You're booked"}
         back
@@ -179,13 +178,13 @@ export default function BookingScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 12, paddingBottom: 40 },
-  title: { fontFamily: serif, fontSize: 32, fontWeight: "700", color: colors.ink },
+  title: { fontFamily: heading, fontSize: 32, fontWeight: "700", color: colors.ink },
   when: { fontSize: 18, lineHeight: 26, color: colors.ink, fontWeight: "600" },
   schedule: { gap: 4 },
   sessionLine: { color: colors.ink, lineHeight: 20 },
   place: { color: colors.muted, lineHeight: 20 },
   meta: { color: colors.ink },
   block: { gap: 10, marginTop: 8 },
-  heading: { fontFamily: serif, fontSize: 24, fontWeight: "700", color: colors.ink },
+  heading: { fontFamily: heading, fontSize: 24, fontWeight: "700", color: colors.ink },
   body: { color: colors.ink, lineHeight: 21 },
 });
