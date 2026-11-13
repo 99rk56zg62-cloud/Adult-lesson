@@ -14,6 +14,7 @@ import {
   adminCustomersPage,
   adminRemindersPage,
   adminCoursesPage,
+  adminCustomerPagesPage,
   adminDisabledPage,
   adminLocationsPage,
   adminLoginPage,
@@ -134,11 +135,13 @@ const courseSessionSchema = z.object({
   minute: z.number().int().min(0).max(59),
 });
 
+const courseDaysSchema = z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)]);
+
 const courseBasketSchema = z.object({
-  days: z.union([z.literal(3), z.literal(4), z.literal(5)]),
+  days: courseDaysSchema,
   locationId: z.string().min(1).optional(),
   partySize: z.union([z.literal(1), z.literal(2)]).optional(),
-  sessions: z.array(courseSessionSchema).min(3).max(5),
+  sessions: z.array(courseSessionSchema).min(2).max(5),
   goal: z.string().optional(),
   comments: z.string().optional(),
 });
@@ -162,7 +165,7 @@ const profileSchema = z.object({
 
 const adminCourseProductSchema = z.object({
   locationId: z.string().min(1),
-  days: z.union([z.literal(3), z.literal(4), z.literal(5)]),
+  days: courseDaysSchema,
   capacity: z.number().int().min(1).max(2),
   pricePence: z.number().int().min(100).max(500_000),
   title: z.string().trim().min(2).max(80),
@@ -282,6 +285,36 @@ function oneOffFromForm(body: any) {
     instructor: field(body, "instructor"),
     blurb: field(body, "blurb"),
   });
+}
+
+function customerPagesFromForm(body: any) {
+  const days = [2, 3, 4, 5] as const;
+  const levels = [
+    ["water-phobia", "Water Phobia"],
+    ["beginners", "Beginners"],
+    ["intermediate", "Intermediate"],
+    ["advanced", "Advanced"],
+    ["technique", "Technique Refinement"],
+  ] as const;
+  return {
+    contactEmail: field(body, "contactEmail"),
+    contactPhone: field(body, "contactPhone"),
+    courseIntro: field(body, "courseIntro"),
+    packages: days.map((day) => ({
+      days: day,
+      title: field(body, `packageTitle${day}`),
+      body: field(body, `packageBody${day}`),
+    })),
+    weeklyCard: field(body, "weeklyCard"),
+    weeklyIntro: field(body, "weeklyIntro"),
+    weeklyHeading: field(body, "weeklyHeading"),
+    levels: levels.map(([id]) => ({
+      id,
+      title: field(body, `levelTitle_${id}`),
+      body: field(body, `levelBody_${id}`),
+    })),
+    weeklyClosing: field(body, "weeklyClosing"),
+  };
 }
 
 function courseProductFromForm(body: any) {
@@ -1135,6 +1168,28 @@ export function createApp(deps: AppDeps) {
   );
 
   app.get(
+    "/admin/customer-pages",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      res.type("html").send(
+        adminCustomerPagesPage({
+          pages: service.editableCustomerPages(),
+          notice: queryValue(req.query.notice),
+        }),
+      );
+    }),
+  );
+
+  app.post(
+    "/admin/customer-pages",
+    route(async (req, res) => {
+      if (!requireAdminPage(req, res)) return;
+      service.saveCustomerPages(customerPagesFromForm(req.body));
+      res.redirect(303, "/admin/customer-pages?notice=" + encodeURIComponent("Customer page text saved."));
+    }),
+  );
+
+  app.get(
     "/admin/courses",
     route(async (req, res) => {
       if (!requireAdminPage(req, res)) return;
@@ -1229,6 +1284,22 @@ export function createApp(deps: AppDeps) {
     requireUser,
     route(async (req, res) => {
       res.json(service.saveProfile(userId(res), profileSchema.parse(req.body)));
+    }),
+  );
+
+  app.get(
+    "/api/pages",
+    requireUser,
+    route(async (_req, res) => {
+      res.json(service.customerPages(userId(res)));
+    }),
+  );
+
+  app.put(
+    "/api/admin/customer-pages",
+    route(async (req, res) => {
+      requireAdmin(req);
+      res.json(service.saveCustomerPages(req.body));
     }),
   );
 

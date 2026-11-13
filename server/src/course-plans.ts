@@ -1,14 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { DateTime } from "luxon";
-import { COURSE_DAILY_MINUTES, COURSE_PACKAGE_PRICES } from "./availability.js";
+import { COURSE_DAILY_MINUTES, COURSE_LENGTHS, COURSE_PACKAGE_PRICES, type CourseLength } from "./availability.js";
 import { getRows } from "./db.js";
 import { AppError } from "./errors.js";
 import { clockLabel, formatGBP } from "./format.js";
 import { windowStarts, type WindowRow } from "./offers.js";
 import { getCourseBookingBlock, lastCourseBookableDay } from "./rules.js";
 import { fromIso, toUtcIso, ZONE } from "./time.js";
-
-type CourseLength = 3 | 4 | 5;
 
 export type SessionChoice = { dateKey: string; hour: number; minute: number };
 
@@ -96,8 +94,8 @@ export function assertCourseSessions(
   now: DateTime,
   input: { locationId: string; days: number; sessions: SessionChoice[]; exceptBookingId?: string },
 ): PlannedSession[] {
-  if (input.days !== 3 && input.days !== 4 && input.days !== 5) {
-    throw new AppError(400, "VALIDATION", "Crash courses are 3, 4, or 5 days.");
+  if (!(COURSE_LENGTHS as readonly number[]).includes(input.days)) {
+    throw new AppError(400, "VALIDATION", "Crash courses are 2, 3, 4, or 5 days.");
   }
   if (input.sessions.length !== input.days) {
     throw new AppError(400, "VALIDATION", `Choose exactly ${input.days} days.`);

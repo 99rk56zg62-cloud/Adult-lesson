@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
 import { useAuth } from "@/auth";
+import { ContactButtons, defaultContact } from "@/components/contact-buttons";
 import { Banner, Button, TopBar } from "@/components/ui";
 import { accountReturnUrl } from "@/return-url";
 import { colors, heading } from "@/theme";
@@ -22,14 +23,21 @@ export default function AccountScreen() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [cards, setCards] = useState<{ id: string; brand: string; last4: string; expMonth: number; expYear: number; isDefault: boolean }[]>([]);
   const [pushOptOut, setPushOptOut] = useState(false);
+  const [contact, setContact] = useState(defaultContact);
   const notice = one(params.message);
 
   const load = useCallback(async () => {
     try {
-      const [calendar, cardList, settings] = await Promise.all([api.calendarStatus(), api.cards(), api.notificationSettings()]);
+      const [calendar, cardList, settings, pages] = await Promise.all([
+        api.calendarStatus(),
+        api.cards(),
+        api.notificationSettings(),
+        api.pages(),
+      ]);
       setStatus(calendar);
       setCards(cardList.cards);
       setPushOptOut(settings.pushOptOut);
+      setContact({ contactEmail: pages.contactEmail, contactPhone: pages.contactPhone, contactTel: pages.contactTel });
       setError(null);
     } catch (caught) {
       setError(messageOf(caught));
@@ -145,6 +153,13 @@ export default function AccountScreen() {
               <Button label={busy ? "Disconnecting…" : "Confirm disconnect"} variant="danger" disabled={busy} onPress={disconnect} />
             </>
           ) : null}
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.kicker}>Help</Text>
+          <Text style={styles.body}>
+            Call {contact.contactPhone} or email {contact.contactEmail} if you need a hand choosing a lesson.
+          </Text>
+          <ContactButtons email={contact.contactEmail} phone={contact.contactPhone} tel={contact.contactTel} />
         </View>
         <View style={styles.card}>
           <Text style={styles.kicker}>Staff admin</Text>

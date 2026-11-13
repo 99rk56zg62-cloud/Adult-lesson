@@ -1,6 +1,6 @@
 # Lido
 
-Adult swimming lesson bookings for iOS, Android, and web. Customers pick a date on the month calendar, then a 30 or 60 minute lesson, then a start time inside that day's availability window. They can also book a 3/4/5-day morning crash course. Lessons are not organised by skill level. Several lessons can go in one basket and one payment. Bookings are non-refundable. A lesson can be moved until 24 hours before it starts, and that move updates Google Calendar.
+Adult swimming lesson bookings for iOS, Android, and web. Customers pick a date on the month calendar, then a 30 or 60 minute lesson, then a start time inside that day's availability window. They can also book a 2, 3, 4, or 5-day morning crash course. Lessons are not organised by skill level. Several lessons can go in one basket and one payment. Bookings are non-refundable. A lesson can be moved until 24 hours before it starts, and that move updates Google Calendar.
 
 The mobile client is Expo (React Native). The API is a small Node server with SQLite. Business rules are enforced on the server. Pool staff manage locations, availability windows, lesson prices, and crash courses in a simple admin web page.
 
@@ -12,7 +12,7 @@ The mobile client is Expo (React Native). The API is a small Node server with SQ
 4. The day shows every start on the hour or half hour that fits inside the window (a 60 minute lesson in a 6:00–9:00 window can start no later than 8:00). Free times show the price. Times that overlap a booking, a live hold, or a crash course stay on the grid in grey.
 5. Tap a free time to add it to the basket. Choose another date or length and add more, including a mix of 30 and 60 minutes, as long as the lessons do not overlap. The bar shows the count and the running total. Remove a lesson before paying.
 6. Pay once for the basket total (Stripe Checkout, or the local test-payment page when no Stripe key is set). The checkout repeats: **Bookings are non-refundable. You can move your lesson up to 24 hours before it starts.** Payment creates one booking per lesson.
-7. Scroll to **Crash courses** and choose **3, 4, or 5 days**. The app suggests the next free run of consecutive mornings, 90 minutes a day, inside the availability window. You can swap any day for another free day. The course goes in the basket as one item: **£349**, **£449**, or **£549**.
+7. Open **Courses** or scroll to **Crash courses** and choose **2, 3, 4, or 5 days** (£249, £349, £449, or £549). The app suggests the next free run of consecutive mornings, 90 minutes a day. Crash courses can be booked up to 6 months ahead. You can swap any day. If the first day is more than 4 weeks away, checkout takes a non-refundable 20% deposit and the balance is taken 4 weeks before. **Weekly** explains the private 30 and 60 minute lessons.
 8. Bookings appear under **Lessons**, with the same non-refundable line. **Rearrange** is offered until **24 hours** before a lesson starts. Inside that window the button is hidden and the screen says you can move a lesson until 24 hours before it starts. Each day of a crash course can be moved on its own until 24 hours before that day. There is no customer cancel action and no refund.
 9. Use **Add to Google Calendar** on a booking, or connect Google on Account so paid bookings sync automatically. Moving a lesson updates its calendar event and frees the old time.
 
@@ -88,9 +88,10 @@ What you can do there:
 2. **Lesson prices** — the 30 minute and 60 minute rates. Defaults are £30 and £60.
 3. **Availability windows** — the open hours for each weekday and location. Customers book a 30 or 60 minute start on the hour or half hour inside that window. Swim School Academy Fareham is seeded as **06:00–09:00 every day**.
 4. **Upcoming sessions** — booked lessons and one-off dates. Staff can cancel a single date from the diary; customers cannot.
-5. **Crash courses** — course products (3/4/5 days, 90 min/day, morning window, 1-to-1 or 1-to-2, package price) and scheduled runs with a first date and daily start time. Defaults are £349, £449, and £549.
+5. **Crash courses** — course products (2/3/4/5 days, 90 min/day, morning window, 1-to-1 or 1-to-2, package price) and scheduled runs. Defaults are £249, £349, £449, and £549.
+6. **Info pages** — the Crash Courses and Weekly Lessons wording, plus the contact email and phone used by Contact us, Call us, and booking emails.
 
-The customer schedule is built from those windows. The JSON admin API (`x-admin-token` header) includes `/api/admin/locations`, `/api/admin/windows`, `/api/admin/lesson-prices`, `/api/admin/rules`, `/api/admin/slots`, `/api/admin/course-products`, and `/api/admin/course-runs`.
+The customer schedule is built from those windows. The JSON admin API (`x-admin-token` header) includes `/api/admin/locations`, `/api/admin/windows`, `/api/admin/lesson-prices`, `/api/admin/rules`, `/api/admin/slots`, `/api/admin/course-products`, `/api/admin/course-runs`, and `/api/admin/customer-pages`.
 
 After changing availability, pull to refresh the Schedule screen in the app.
 

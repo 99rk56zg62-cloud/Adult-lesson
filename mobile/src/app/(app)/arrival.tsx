@@ -2,6 +2,7 @@ import { useFocusEffect } from "expo-router";
 import { createElement, useCallback, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api, messageOf } from "@/api";
+import { ContactButtons, defaultContact } from "@/components/contact-buttons";
 import { Banner, Button, TopBar } from "@/components/ui";
 import { colors, heading } from "@/theme";
 import type { Location } from "@/types";
@@ -29,11 +30,13 @@ export default function ArrivalScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [contact, setContact] = useState(defaultContact);
 
   const load = useCallback(async () => {
     try {
-      const result = await api.locations();
+      const [result, pages] = await Promise.all([api.locations(), api.pages()]);
       setLocations(result.locations);
+      setContact({ contactEmail: pages.contactEmail, contactPhone: pages.contactPhone, contactTel: pages.contactTel });
       setSelectedId((current) => current ?? result.locations[0]?.id ?? null);
       setError(null);
     } catch (caught) {
@@ -92,6 +95,7 @@ export default function ArrivalScreen() {
               </View>
             ) : null}
             <Button label="Open in Maps" onPress={() => void Linking.openURL(mapsUrl(location))} />
+            <ContactButtons email={contact.contactEmail} phone={contact.contactPhone} tel={contact.contactTel} />
             <Text style={styles.heading}>When you arrive</Text>
             {steps.map((step) => (
               <Text key={step} style={styles.step}>

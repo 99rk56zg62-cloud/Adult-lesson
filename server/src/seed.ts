@@ -108,6 +108,15 @@ const DEFAULT_RULES = [
 
 const COURSE_PRODUCTS = [
   {
+    id: "course-prod-2-intensive",
+    days: 2 as const,
+    capacity: 1,
+    pricePence: COURSE_PACKAGE_PRICES[2],
+    title: "2-day crash course",
+    blurb: "Two mornings, 90 minutes each day, with the same teacher. The price is for the whole course.",
+    instructor: "Sam Okonkwo",
+  },
+  {
     id: "course-prod-3-beginners",
     days: 3 as const,
     capacity: 1,

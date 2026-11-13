@@ -1,4 +1,6 @@
-import { LESSON_DURATIONS, WEEKDAY_LABELS } from "./availability.js";
+import { COURSE_PACKAGE_PRICES, LESSON_DURATIONS, WEEKDAY_LABELS } from "./availability.js";
+import type { CustomerPages } from "./guides.js";
+import { formatGBP } from "./format.js";
 import { BUSINESS_NAME, brandCss, brandFontLinks } from "./brand-style.js";
 import { esc } from "./pages.js";
 import type { AvailabilityRuleDto, CourseProductDto, CourseRunDto, LocationDto, SlotDto } from "./types.js";
@@ -63,6 +65,7 @@ function adminShell(title: string, body: string, notice?: string | null): string
       <a href="/admin/availability">Weekly availability</a>
       <a href="/admin/sessions">Upcoming sessions</a>
       <a href="/admin/courses">Crash courses</a>
+      <a href="/admin/customer-pages">Info pages</a>
       <a href="/admin/course-bookings">Course bookings</a>
       <a href="/admin/customers">Customers</a>
       <a href="/admin/reminders">Reminders</a>
@@ -136,7 +139,7 @@ export function adminOverviewPage(input: {
     </div>
     <div class="card">
       <h2>How customers book</h2>
-      <p class="muted">They pick a location (when more than one exists), choose 30 or 60 minute single lessons on the calendar, or book a 3/4/5-day morning crash course. Full sessions stay greyed out. The 6-week window and 24-hour rearrange lock apply to lessons and to each day of a crash course. Arrival notes for each pool are edited under Locations.</p>
+      <p class="muted">They pick a location (when more than one exists), choose 30 or 60 minute single lessons on the calendar, or book a 2, 3, 4, or 5-day morning crash course. Full sessions stay greyed out. The 6-week window and 24-hour rearrange lock apply to lessons and to each day of a crash course. Arrival notes for each pool are edited under Locations. The Crash Courses and Weekly Lessons wording is edited under Info pages.</p>
     </div>`,
     input.notice,
   );
@@ -523,12 +526,12 @@ export function adminCoursesPage(input: {
     "Crash courses",
     `<div class="card">
       <h2>Add course product</h2>
-      <p class="muted">Each day is 90 minutes. Package totals: 3 days £349, 4 days £449, 5 days £549. Sessions are 1-to-1 or 1-to-2.</p>
+      <p class="muted">Each day is 90 minutes. Package totals: 2 days £249, 3 days £349, 4 days £449, 5 days £549. Sessions are 1-to-1 or 1-to-2.</p>
       <form method="post" action="/admin/course-products" class="grid">
         <div><label>Location</label><select name="locationId" required>${locationOptions(input.locations)}</select></div>
         <div><label>Days</label>
-          <select name="days" onchange="var prices={'3':'349.00','4':'449.00','5':'549.00'}; var price=document.getElementById('coursePrice'); if(price) price.value=prices[this.value]; var title=document.getElementById('courseTitle'); if(title) title.value=this.value+'-day crash course';">
-            <option value="3">3 days</option><option value="4">4 days</option><option value="5">5 days</option>
+          <select name="days" onchange="var prices={'2':'249.00','3':'349.00','4':'449.00','5':'549.00'}; var price=document.getElementById('coursePrice'); if(price) price.value=prices[this.value]; var title=document.getElementById('courseTitle'); if(title) title.value=this.value+'-day crash course';">
+            <option value="2">2 days</option><option value="3" selected>3 days</option><option value="4">4 days</option><option value="5">5 days</option>
           </select>
         </div>
         <div><label>Title</label><input id="courseTitle" name="title" value="3-day crash course" required /></div>
@@ -563,6 +566,72 @@ export function adminCoursesPage(input: {
         <tbody>${runRows || `<tr><td colspan="3" class="muted">No runs yet.</td></tr>`}</tbody>
       </table>
     </div>`,
+    input.notice,
+  );
+}
+
+export function adminCustomerPagesPage(input: { pages: CustomerPages; notice?: string | null }): string {
+  const pages = input.pages;
+  const packageFields = pages.packages
+    .map((item) => {
+      const deposit = Math.round(COURSE_PACKAGE_PRICES[item.days] * 0.2);
+      return `<div class="card">
+        <h2>${item.days}-day course</h2>
+        <p class="muted">Customers are charged ${esc(formatGBP(COURSE_PACKAGE_PRICES[item.days]))}. The non-refundable deposit is ${esc(formatGBP(deposit))}.</p>
+        <label>Title</label>
+        <input name="packageTitle${item.days}" value="${esc(item.title)}" required />
+        <label>Description</label>
+        <textarea name="packageBody${item.days}" required>${esc(item.body)}</textarea>
+      </div>`;
+    })
+    .join("");
+  const levelFields = pages.levels
+    .map(
+      (level) => `<div class="card">
+        <h2>${esc(level.title)}</h2>
+        <label>Title</label>
+        <input name="levelTitle_${esc(level.id)}" value="${esc(level.title)}" required />
+        <label>Description</label>
+        <textarea name="levelBody_${esc(level.id)}" required>${esc(level.body)}</textarea>
+      </div>`,
+    )
+    .join("");
+  return adminShell(
+    "Info pages",
+    `<form method="post" action="/admin/customer-pages">
+      <div class="card">
+        <h2>Contact details</h2>
+        <p class="muted">These appear on Contact us and Call us, and in booking confirmation and reminder emails. Change them if the school address or phone number changes.</p>
+        <label>Email</label>
+        <input name="contactEmail" type="email" value="${esc(pages.contactEmail)}" required />
+        <label>Phone</label>
+        <input name="contactPhone" value="${esc(pages.contactPhone)}" required />
+      </div>
+      <div class="card">
+        <h2>Crash Courses tab</h2>
+        <label>Introduction</label>
+        <textarea name="courseIntro" required>${esc(pages.courseIntro)}</textarea>
+      </div>
+      ${packageFields}
+      <div class="card">
+        <h2>Weekly lessons card</h2>
+        <p class="muted">This card sits at the bottom of Crash Courses and opens the Weekly Lessons tab.</p>
+        <textarea name="weeklyCard" required>${esc(pages.weeklyCard)}</textarea>
+      </div>
+      <div class="card">
+        <h2>Weekly Lessons tab</h2>
+        <label>Introduction</label>
+        <textarea name="weeklyIntro" required>${esc(pages.weeklyIntro)}</textarea>
+        <label>Heading</label>
+        <input name="weeklyHeading" value="${esc(pages.weeklyHeading)}" required />
+      </div>
+      ${levelFields}
+      <div class="card">
+        <h2>Weekly lessons closing</h2>
+        <textarea name="weeklyClosing" required>${esc(pages.weeklyClosing)}</textarea>
+        <button type="submit">Save page text</button>
+      </div>
+    </form>`,
     input.notice,
   );
 }

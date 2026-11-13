@@ -88,6 +88,29 @@ export const api = {
     request<{ complete: boolean; profile: import("@/types").SwimmerProfile }>("/api/profile", { method: "PUT", body }),
   saveCourseNotes: (bookingId: string, body: { goal: string; comments?: string }) =>
     request<{ booking: Booking }>(`/api/bookings/${bookingId}/course-notes`, { method: "POST", body }),
+  pages: () =>
+    request<{
+      contactEmail: string;
+      contactPhone: string;
+      contactTel: string;
+      contactLine: string;
+      courseIntro: string;
+      packages: {
+        days: number;
+        title: string;
+        body: string;
+        priceLabel: string;
+        depositLabel: string;
+        balanceLabel: string;
+        recommended: boolean;
+      }[];
+      weeklyCard: string;
+      weeklyIntro: string;
+      weeklyHeading: string;
+      levels: { id: string; title: string; body: string }[];
+      weeklyClosing: string;
+      paymentPlan: string;
+    }>("/api/pages"),
   locations: () => request<{ locations: Location[] }>("/api/locations"),
   slots: (filters?: { locationId?: string; durationMinutes?: number; partySize?: number; excludeBookingId?: string }) =>
     request<{

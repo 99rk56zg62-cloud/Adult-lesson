@@ -7,10 +7,12 @@ import type { AvailabilityRuleRow, LocationRow } from "./types.js";
 
 export const WEEKDAY_LABELS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 export const LESSON_DURATIONS = [30, 60] as const;
-export const COURSE_LENGTHS = [3, 4, 5] as const;
+export const COURSE_LENGTHS = [2, 3, 4, 5] as const;
+export type CourseLength = (typeof COURSE_LENGTHS)[number];
 export const COURSE_DAILY_MINUTES = 90;
 /** Whole-course package totals in pence. Each day is still 90 minutes. */
-export const COURSE_PACKAGE_PRICES: Record<3 | 4 | 5, number> = {
+export const COURSE_PACKAGE_PRICES: Record<CourseLength, number> = {
+  2: 24900,
   3: 34900,
   4: 44900,
   5: 54900,
@@ -67,7 +69,7 @@ export function assertLessonDuration(minutes: number) {
 
 export function assertCourseDays(days: number) {
   if (!(COURSE_LENGTHS as readonly number[]).includes(days)) {
-    throw new Error("Crash courses are 3, 4, or 5 days.");
+    throw new Error("Crash courses are 2, 3, 4, or 5 days.");
   }
 }
 

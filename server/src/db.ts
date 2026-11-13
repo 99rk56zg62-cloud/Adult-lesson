@@ -292,9 +292,11 @@ function migrate(db: DatabaseSync) {
       booking_id TEXT,
       subject TEXT NOT NULL,
       body TEXT NOT NULL,
+      reply_to TEXT,
       created_at TEXT NOT NULL
     );
   `);
+  ensureColumn(db, "email_outbox", "reply_to", "TEXT");
 
   ensureColumn(db, "slots", "enabled", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "slots", "cancelled", "INTEGER NOT NULL DEFAULT 0");

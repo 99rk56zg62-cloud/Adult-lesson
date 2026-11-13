@@ -15,6 +15,8 @@ test("takes a 20 percent deposit when the course starts more than four weeks ahe
   assert.equal(plan.dueAt?.setZone("Europe/London").toISODate(), "2027-01-05");
   assert.equal(coursePaymentPlan(44900, first, bookedAt).depositPence, 8980);
   assert.equal(coursePaymentPlan(54900, first, bookedAt).depositPence, 10980);
+  assert.equal(coursePaymentPlan(24900, first, bookedAt).depositPence, 4980);
+  assert.equal(coursePaymentPlan(24900, first, bookedAt).balancePence, 19920);
 });
 
 test("takes the full fee when the first day is inside four weeks", () => {

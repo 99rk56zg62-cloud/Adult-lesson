@@ -34,6 +34,8 @@ import {
 import { hashPassword, readOAuthState, signAccessToken, signOAuthState, verifyPassword } from "./auth.js";
 import type { CalendarGateway } from "./calendar.js";
 import { assertCourseSessions, assertSessionOpen, listCourseDayOptions, suggestCrashCourses, type SessionChoice } from "./course-plans.js";
+import { contactQuestion, loadCustomerPages, presentCustomerPages, saveCustomerPages, type CustomerPages } from "./guides.js";
+import type { CourseLength } from "./availability.js";
 import { BALANCE_REMINDER_DAYS, coursePaymentPlan } from "./deposits.js";
 import { assertProfileInput, type ProfileInput } from "./profile.js";
 import type { AppConfig } from "./config.js";
@@ -197,18 +199,18 @@ export function createService(deps: ServiceDeps) {
     );
     if (existing) return 0;
     const stamp = nowIso();
+    const pages = channel === "email" ? loadCustomerPages(db) : null;
+    const stored =
+      pages && !body.includes("Any further questions?")
+        ? `${body}\n\n${contactQuestion(pages.contactPhone, pages.contactEmail)}`
+        : body;
     db.prepare(
       `INSERT INTO session_reminders (id, booking_id, session_key, channel, subject, body, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(randomUUID(), bookingId, sessionKey, channel, subject, body, stamp);
-    if (channel === "email") {
-      db.prepare(`INSERT INTO email_outbox (id, user_id, booking_id, subject, body, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-        randomUUID(),
-        userId,
-        bookingId,
-        subject,
-        body,
-        stamp,
-      );
+    ).run(randomUUID(), bookingId, sessionKey, channel, subject, stored, stamp);
+    if (pages) {
+      db.prepare(
+        `INSERT INTO email_outbox (id, user_id, booking_id, subject, body, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), userId, bookingId, subject, stored, pages.contactEmail, stamp);
     }
     if (channel === "push") {
       db.prepare(`INSERT INTO notifications (id, user_id, booking_id, kind, message, created_at) VALUES (?, ?, ?, 'session_reminder', ?, ?)`).run(
@@ -233,6 +235,38 @@ export function createService(deps: ServiceDeps) {
     }
   }
 
+  function confirmationMessage(booking: BookingRow): string {
+    if (booking.kind === "course" && booking.course_run_id) {
+      const run = getRow<CourseRunRow>(db, `SELECT * FROM course_runs WHERE id = ?`, booking.course_run_id);
+      const sessions = getRows<{ starts_at: string }>(
+        db,
+        `SELECT starts_at FROM course_sessions WHERE run_id = ? ORDER BY starts_at`,
+        booking.course_run_id,
+      );
+      const days = sessions
+        .map((session) => fromIso(session.starts_at).setZone(ZONE).toFormat("cccc d LLLL, h:mma").toLowerCase())
+        .join("\n");
+      return [
+        `Your crash course ${booking.reference} is confirmed.`,
+        run ? `${run.title} at ${run.location}, ${run.address}` : "",
+        days,
+        "Bookings are non-refundable. You can move each day until 24 hours before it starts.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+    const slot = booking.slot_id ? getRow<SlotRow>(db, `SELECT * FROM slots WHERE id = ?`, booking.slot_id) : undefined;
+    const when = slot ? fromIso(slot.starts_at).setZone(ZONE).toFormat("cccc d LLLL 'at' h:mma").toLowerCase() : "";
+    return [
+      `Your lesson ${booking.reference} is confirmed.`,
+      slot ? `${slot.duration_minutes} minutes. ${when}.` : "",
+      slot ? `${slot.location}, ${slot.address}` : "",
+      "Bookings are non-refundable. You can move the lesson until 24 hours before it starts.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   function notify(userId: string, bookingId: string, kind: string, subject: string, message: string) {
     const stamp = nowIso();
     db.prepare(`INSERT INTO notifications (id, user_id, booking_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
@@ -243,14 +277,11 @@ export function createService(deps: ServiceDeps) {
       message,
       stamp,
     );
-    db.prepare(`INSERT INTO email_outbox (id, user_id, booking_id, subject, body, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
-      randomUUID(),
-      userId,
-      bookingId,
-      subject,
-      message,
-      stamp,
-    );
+    const pages = loadCustomerPages(db);
+    const mailed = message.includes("Any further questions?") ? message : `${message}\n\n${contactQuestion(pages.contactPhone, pages.contactEmail)}`;
+    db.prepare(
+      `INSERT INTO email_outbox (id, user_id, booking_id, subject, body, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(randomUUID(), userId, bookingId, subject, mailed, pages.contactEmail, stamp);
   }
 
   function requireUser(userId: string): UserRow {
@@ -867,7 +898,7 @@ export function createService(deps: ServiceDeps) {
         return { booking: toBookingDto(settled), calendarSyncError: null, returnUrl: settled.return_url };
       }
 
-      const confirmedIds = withTransaction(db, () => {
+      const confirmedIdsResult = withTransaction(db, () => {
         expireStale();
         const linked = getRows<BookingRow>(
           db,
@@ -879,6 +910,7 @@ export function createService(deps: ServiceDeps) {
         if (rows.length === 0) throw new AppError(404, "NOT_FOUND", "That booking doesn't exist.");
         const source = payments.mode === "stripe" ? "stripe" : "mock";
         const ids: string[] = [];
+        const freshIds: string[] = [];
         for (const booking of rows) {
           if (booking.status === "confirmed") {
             ids.push(booking.id);
@@ -916,13 +948,21 @@ export function createService(deps: ServiceDeps) {
             );
           }
           ids.push(booking.id);
+          freshIds.push(booking.id);
         }
-        return ids;
+        return { ids, freshIds };
       });
+      const confirmedIds = confirmedIdsResult.ids;
 
       if (verified.customerId && verified.paymentMethodId && confirmedIds[0]) {
         const owner = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, confirmedIds[0]);
         if (owner) await rememberCard(owner.user_id, verified.customerId, verified.paymentMethodId);
+      }
+
+      for (const id of confirmedIdsResult.freshIds) {
+        const row = getRow<BookingRow>(db, `SELECT * FROM bookings WHERE id = ?`, id);
+        if (!row) continue;
+        notify(row.user_id, row.id, "booking_confirmed", `Booking confirmed — ${row.reference}`, confirmationMessage(row));
       }
 
       let calendarSyncError: string | null = null;
@@ -1310,6 +1350,20 @@ export function createService(deps: ServiceDeps) {
         stamp,
       );
       return this.profile(userId);
+    },
+
+    editableCustomerPages() {
+      return loadCustomerPages(db);
+    },
+
+    customerPages(userId: string) {
+      requireUser(userId);
+      const profile = getRow<{ swimming_level: string }>(db, `SELECT swimming_level FROM swimmer_profiles WHERE user_id = ?`, userId);
+      return presentCustomerPages(loadCustomerPages(db), profile?.swimming_level ?? null);
+    },
+
+    saveCustomerPages(input: CustomerPages) {
+      return presentCustomerPages(saveCustomerPages(db, input, nowIso()), null);
     },
 
     saveCourseNotes(userId: string, bookingId: string, input: { goal: string; comments?: string }) {
@@ -1964,7 +2018,7 @@ export function createService(deps: ServiceDeps) {
         throw new AppError(400, "VALIDATION", "Choose 1-to-1 or 1-to-2.");
       }
       const location = input.locationId ? requireLocation(input.locationId) : defaultLocation();
-      return suggestCrashCourses(db, clock(), { locationId: location.id, days: input.days as 3 | 4 | 5 });
+      return suggestCrashCourses(db, clock(), { locationId: location.id, days: input.days as CourseLength });
     },
 
     courseDayOptions(userId: string, input: { locationId?: string; excludeDateKeys?: string[] }) {
@@ -1994,7 +2048,7 @@ export function createService(deps: ServiceDeps) {
         input.days,
       );
       if (!product) throw new AppError(409, "COURSE_UNAVAILABLE", "Crash courses aren't set up yet.");
-      const price = COURSE_PACKAGE_PRICES[input.days as 3 | 4 | 5];
+      const price = COURSE_PACKAGE_PRICES[input.days as CourseLength];
       const goal = input.goal?.trim() ?? "";
       const comments = input.comments?.trim() ?? "";
       const resolved = assertCourseSessions(db, clock(), {

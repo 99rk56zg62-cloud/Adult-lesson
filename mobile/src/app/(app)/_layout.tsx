@@ -29,7 +29,7 @@ export default function AppLayout() {
               height: 64,
               paddingTop: 6,
             },
-            tabBarLabelStyle: { fontSize: 12, fontWeight: "600" },
+            tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
           }}
         >
           <Tabs.Screen
@@ -37,6 +37,20 @@ export default function AppLayout() {
             options={{
               title: "Schedule",
               tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+            }}
+          />
+          <Tabs.Screen
+            name="courses"
+            options={{
+              title: "Courses",
+              tabBarIcon: ({ color, size }) => <Ionicons name="school-outline" color={color} size={size} />,
+            }}
+          />
+          <Tabs.Screen
+            name="weekly"
+            options={{
+              title: "Weekly",
+              tabBarIcon: ({ color, size }) => <Ionicons name="repeat-outline" color={color} size={size} />,
             }}
           />
           <Tabs.Screen

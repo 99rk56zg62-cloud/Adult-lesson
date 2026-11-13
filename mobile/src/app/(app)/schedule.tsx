@@ -175,6 +175,7 @@ export default function ScheduleScreen() {
             {config?.courseDailyMinutes ?? 90} minutes each day. We'll suggest the next free mornings, and you can change any day.
           </Text>
           {(config?.coursePrices ?? [
+            { days: 2, priceLabel: "£249.00" },
             { days: 3, priceLabel: "£349.00" },
             { days: 4, priceLabel: "£449.00" },
             { days: 5, priceLabel: "£549.00" },

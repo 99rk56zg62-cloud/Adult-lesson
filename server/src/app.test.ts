@@ -700,7 +700,7 @@ describe("lido api", { concurrency: 1 }, () => {
 
       const config = await api(ctx.base, "/api/config");
       assert.deepEqual(config.json.lessonDurations, [30, 60]);
-      assert.deepEqual(config.json.courseLengths, [3, 4, 5]);
+      assert.deepEqual(config.json.courseLengths, [2, 3, 4, 5]);
     } finally {
       await ctx.close();
     }
@@ -881,7 +881,7 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.equal(reminder.status, 200, reminder.text);
       assert.equal(reminder.json.reminded, 1);
       const notes = await api(ctx.base, "/api/notifications", { token });
-      assert.match(notes.json.notifications[0].message, /£279\.20/);
+      assert.ok(notes.json.notifications.some((item: { message: string }) => /£279\.20/.test(item.message)));
       const charged = await api(ctx.base, "/api/admin/balances/run", {
         method: "POST",
         headers: { "x-admin-token": "test-admin" },
@@ -973,6 +973,68 @@ describe("lido api", { concurrency: 1 }, () => {
       assert.equal(paid.json.booking.status, "confirmed");
       const stored = ctx.db.prepare(`SELECT last4 FROM payment_cards`).all() as { last4: string }[];
       assert.deepEqual(stored.map((row) => row.last4), ["4242"]);
+      const mailed = ctx.db.prepare(`SELECT reply_to, body FROM email_outbox`).all() as { reply_to: string; body: string }[];
+      assert.ok(mailed.some((row) => row.reply_to === "hello@farehamswimschool.com" && row.body.includes("Call 01329 802208 or email hello@farehamswimschool.com")));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("offers a 2-day crash course and editable Crash Courses and Weekly Lessons pages", async () => {
+    const ctx = await createTestApp();
+    try {
+      const { token } = await register(ctx);
+      const plan = await api(ctx.base, "/api/course-plans?days=2", { token });
+      assert.equal(plan.status, 200, plan.text);
+      assert.equal(plan.json.pricePence, 24900);
+      assert.equal(plan.json.suggestions[0].sessions.length, 2);
+
+      const held = await api(ctx.base, "/api/basket/course", {
+        method: "POST",
+        token,
+        body: {
+          days: 2,
+          goal: "Stronger front crawl",
+          sessions: [
+            { dateKey: "2027-02-02", hour: 6, minute: 0 },
+            { dateKey: "2027-02-03", hour: 6, minute: 0 },
+          ],
+        },
+      });
+      assert.equal(held.status, 201, held.text);
+      assert.equal(held.json.items[0].depositPence, 4980);
+      assert.equal(held.json.items[0].balancePence, 19920);
+      assert.equal(held.json.items[0].payTodayLabel, "£49.80");
+
+      const pages = await api(ctx.base, "/api/pages", { token });
+      assert.equal(pages.status, 200, pages.text);
+      assert.equal(pages.json.contactEmail, "hello@farehamswimschool.com");
+      assert.equal(pages.json.contactPhone, "01329 802208");
+      assert.equal(pages.json.contactTel, "tel:+441329802208");
+      assert.match(pages.json.courseIntro, /payment plan options/);
+      assert.match(pages.json.weeklyHeading, /Swim School Academy Fareham/);
+      assert.match(JSON.stringify(pages.json), /hundreds of people/);
+      assert.match(JSON.stringify(pages.json), /30 or 60 minutes long/);
+      assert.equal(JSON.stringify(pages.json).includes("The Swim People"), false);
+      assert.equal(JSON.stringify(pages.json).includes("60 or 90"), false);
+      assert.equal(JSON.stringify(pages.json).includes("thousands of people"), false);
+      const two = pages.json.packages.find((item: { days: number }) => item.days === 2);
+      assert.equal(two.priceLabel, "£249.00");
+      assert.equal(two.depositLabel, "£49.80");
+
+      await ensureProfile(ctx, token);
+      const recommended = await api(ctx.base, "/api/pages", { token });
+      assert.equal(recommended.json.packages.find((item: { days: number }) => item.days === 2).recommended, true);
+      assert.equal(recommended.json.packages.find((item: { days: number }) => item.days === 5).recommended, false);
+
+      const saved = await api(ctx.base, "/api/admin/customer-pages", {
+        method: "PUT",
+        headers: { "x-admin-token": "test-admin" },
+        body: { ...pages.json, contactPhone: "01329 111222", contactEmail: "hello@farehamswimschool.com" },
+      });
+      assert.equal(saved.status, 200, saved.text);
+      assert.equal(saved.json.contactPhone, "01329 111222");
+      assert.equal(saved.json.contactTel, "tel:+441329111222");
     } finally {
       await ctx.close();
     }
