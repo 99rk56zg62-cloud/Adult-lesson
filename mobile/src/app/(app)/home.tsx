@@ -46,23 +46,23 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      <TopBar title="Book a swim" subtitle="Pick one path. You can change your mind from the tabs below." />
+      <TopBar title="Book your swimming lessons" subtitle="Pick one path. You can change your mind from the tabs below." />
       <ScrollView contentContainerStyle={styles.content}>
         {error ? <Banner tone="danger" text={error} /> : null}
         <View style={[styles.choices, sideBySide ? styles.choicesRow : styles.choicesStack]}>
-          <ChoiceCard
-            title="Book a crash course"
-            subtitle={`2, 3, 4 or 5 days · from ${fromPrice} · learn fast`}
-            icon="school"
-            tone="navy"
-            onPress={() => router.push("/courses" as never)}
-          />
           <ChoiceCard
             title="Book weekly lessons"
             subtitle={`30 or 60 min 1-to-1 or 1-to-2 · ${halfHour} / ${hour}`}
             icon="calendar"
             tone="sand"
             onPress={() => router.push("/schedule" as never)}
+          />
+          <ChoiceCard
+            title="Book a crash course"
+            subtitle={`2, 3, 4 or 5 days · from ${fromPrice} · learn fast`}
+            icon="school"
+            tone="navy"
+            onPress={() => router.push("/courses" as never)}
           />
         </View>
         {location ? (
