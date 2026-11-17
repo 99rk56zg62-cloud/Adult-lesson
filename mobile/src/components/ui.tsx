@@ -41,7 +41,7 @@ export function TopBar({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back"
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/schedule"))}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
           style={styles.back}
         >
           <Ionicons name="chevron-back" size={22} color={dark ? colors.white : colors.ink} />

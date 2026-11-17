@@ -29,9 +29,16 @@ export default function AppLayout() {
               height: 64,
               paddingTop: 6,
             },
-            tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+            tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
           }}
         >
+          <Tabs.Screen
+            name="home"
+            options={{
+              title: "Home",
+              tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
+            }}
+          />
           <Tabs.Screen
             name="schedule"
             options={{
@@ -82,6 +89,6 @@ export default function AppLayout() {
 
 const styles = StyleSheet.create({
   surround: { flex: 1, backgroundColor: colors.surround },
-  phone: { flex: 1, width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: colors.paper },
+  phone: { flex: 1, width: "100%", maxWidth: 960, alignSelf: "center", backgroundColor: colors.paper },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
 });

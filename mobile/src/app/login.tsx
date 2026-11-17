@@ -17,14 +17,14 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Redirect href="/schedule" />;
+  if (user) return <Redirect href="/home" />;
 
   async function submit(nextEmail = email, nextPassword = password) {
     setBusy(true);
     setError(null);
     try {
       await signIn(nextEmail, nextPassword);
-      router.replace("/schedule");
+      router.replace("/home");
     } catch (caught) {
       setError(messageOf(caught));
     } finally {

@@ -15,7 +15,7 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Redirect href="/schedule" />;
+  if (user) return <Redirect href="/home" />;
 
   async function submit() {
     if (password !== confirm) {
@@ -26,7 +26,7 @@ export default function RegisterScreen() {
     setError(null);
     try {
       await register(name, email, password);
-      router.replace("/schedule");
+      router.replace("/home");
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
